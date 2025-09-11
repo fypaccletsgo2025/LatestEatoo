@@ -1,6 +1,7 @@
 // screens/PreferenceQuestionnaire.js
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { availableItems, availableRestaurants } from '../data/mockData';
 
 // Small selectable chip
@@ -12,155 +13,107 @@ function Chip({ label, selected, onPress }) {
   );
 }
 
-// Step 1 - Diet/type
+// Combined, scrollable questionnaire (all sections stacked)
 export const PreferenceQuestionnaire = ({ route, navigation }) => {
-  const { selectedDiet: preDiet = [] } = route?.params || {};
-  const dietOptions = useMemo(() => {
-    // derive unique types from data (e.g., meal, drink, dessert, pastry, snacks)
-    return Array.from(new Set(availableItems.map(i => i.type)));
-  }, []);
-  const [selectedDiet, setSelectedDiet] = useState(preDiet);
+  const insets = useSafeAreaInsets();
+  const {
+    selectedDiet: preDiet = [],
+    selectedCuisine: preCuisine = [],
+    selectedMood: preMood = [],
+    selectedPrice: prePrice = [],
+    onComplete,
+  } = route?.params || {};
 
-  const toggle = (v) => {
-    setSelectedDiet((prev) => (prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]));
-  };
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Step 1: What are you looking for?</Text>
-      <ScrollView contentContainerStyle={styles.chipsWrap}>
-        {dietOptions.map(opt => (
-          <Chip key={opt} label={opt} selected={selectedDiet.includes(opt)} onPress={() => toggle(opt)} />
-        ))}
-      </ScrollView>
-      <TouchableOpacity
-        style={styles.primaryBtn}
-        onPress={() => navigation.navigate('PreferenceQuestionnaireStep2', { selectedDiet })}
-      >
-        <Text style={styles.primaryBtnText}>Next</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// Step 2 - Cuisine
-export const PreferenceQuestionnaireStep2 = ({ route, navigation }) => {
-  const { selectedDiet = [] } = route.params || {};
+  const dietOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.type))), []);
   const cuisineOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.cuisine))), []);
-  const [selectedCuisine, setSelectedCuisine] = useState(route?.params?.selectedCuisine ?? []);
-  const toggle = (v) => setSelectedCuisine(prev => (prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]));
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Step 2: Pick cuisines</Text>
-      <ScrollView contentContainerStyle={styles.chipsWrap}>
-        {cuisineOptions.map(opt => (
-          <Chip key={opt} label={opt} selected={selectedCuisine.includes(opt)} onPress={() => toggle(opt)} />
-        ))}
-      </ScrollView>
-      <View style={styles.row}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.secondaryBtnText}>Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => navigation.navigate('PreferenceQuestionnaireStep3', { selectedDiet, selectedCuisine })}
-        >
-          <Text style={styles.primaryBtnText}>Next</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-// Step 3 - Mood
-export const PreferenceQuestionnaireStep3 = ({ route, navigation }) => {
-  const { selectedDiet = [], selectedCuisine = [] } = route.params || {};
-  // Gather unique ambience tags from restaurants
   const moodOptions = useMemo(
     () => Array.from(new Set((availableRestaurants || []).flatMap(r => r.ambience || []))),
     []
   );
-  const [selectedMood, setSelectedMood] = useState(route?.params?.selectedMood ?? []);
-  const toggle = (v) => setSelectedMood(prev => (prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]));
+  const priceOptions = ['RM0-RM10', 'RM11-RM20', 'RM21-RM30', 'RM31+'];
+
+  const [selectedDiet, setSelectedDiet] = useState(preDiet);
+  const [selectedCuisine, setSelectedCuisine] = useState(preCuisine);
+  const [selectedMood, setSelectedMood] = useState(preMood);
+  const [selectedPrice, setSelectedPrice] = useState(prePrice);
+
+  const toggle = (setter, list, v) => setter(list.includes(v) ? list.filter(x => x !== v) : [...list, v]);
+
+  const handleApply = () => {
+    const payload = { selectedDiet, selectedCuisine, selectedMood, selectedPrice };
+    if (onComplete) {
+      onComplete(payload);
+    } else if (navigation?.navigate) {
+      navigation.navigate('PreferenceMainPage', payload);
+    }
+  };
+
+  const clearAll = () => {
+    setSelectedDiet([]);
+    setSelectedCuisine([]);
+    setSelectedMood([]);
+    setSelectedPrice([]);
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>Step 3: What's the vibe?</Text>
-      <ScrollView contentContainerStyle={styles.chipsWrap}>
-        {moodOptions.map(opt => (
-          <Chip key={opt} label={opt} selected={selectedMood.includes(opt)} onPress={() => toggle(opt)} />
-        ))}
+      <Text style={styles.heading}>Tailor your recommendations</Text>
+      <ScrollView contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 24 + 56) }}>
+        {/* Diet/Type */}
+        <Text style={styles.subheading}>Type</Text>
+        <View style={styles.chipsWrap}>
+          {dietOptions.map(opt => (
+            <Chip key={opt} label={opt} selected={selectedDiet.includes(opt)} onPress={() => toggle(setSelectedDiet, selectedDiet, opt)} />
+          ))}
+        </View>
+
+        {/* Cuisine */}
+        <Text style={styles.subheading}>Cuisines</Text>
+        <View style={styles.chipsWrap}>
+          {cuisineOptions.map(opt => (
+            <Chip key={opt} label={opt} selected={selectedCuisine.includes(opt)} onPress={() => toggle(setSelectedCuisine, selectedCuisine, opt)} />
+          ))}
+        </View>
+
+        {/* Mood */}
+        <Text style={styles.subheading}>Mood</Text>
+        <View style={styles.chipsWrap}>
+          {moodOptions.map(opt => (
+            <Chip key={opt} label={opt} selected={selectedMood.includes(opt)} onPress={() => toggle(setSelectedMood, selectedMood, opt)} />
+          ))}
+        </View>
+
+        {/* Price */}
+        <Text style={styles.subheading}>Budget</Text>
+        <View style={styles.chipsWrap}>
+          {priceOptions.map(opt => (
+            <Chip key={opt} label={opt} selected={selectedPrice.includes(opt)} onPress={() => toggle(setSelectedPrice, selectedPrice, opt)} />
+          ))}
+        </View>
+
+        <View style={[styles.row, { marginTop: 20 }]}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={clearAll}>
+            <Text style={styles.secondaryBtnText}>Clear</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleApply}>
+            <Text style={styles.primaryBtnText}>Apply</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
-      <View style={styles.row}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.secondaryBtnText}>Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => navigation.navigate('PreferenceQuestionnaireStep4', { selectedDiet, selectedCuisine, selectedMood })}
-        >
-          <Text style={styles.primaryBtnText}>Next</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
 
-// Step 4 - Price
-export const PreferenceQuestionnaireStep4 = ({ route, navigation }) => {
-  const { selectedDiet = [], selectedCuisine = [], selectedMood = [] } = route.params || {};
-  // Note: using strings that the filtering screen expects
-  const priceOptions = [
-    'RM0-RM10',
-    'RM11-RM20',
-    'RM21-RM30',
-    'RM31+',
-  ];
-  const [selectedPrice, setSelectedPrice] = useState(route?.params?.selectedPrice ?? []);
-  const toggle = (v) => setSelectedPrice(prev => (prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]));
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Step 4: Budget range</Text>
-      <ScrollView contentContainerStyle={styles.chipsWrap}>
-        {priceOptions.map(opt => (
-          <Chip key={opt} label={opt} selected={selectedPrice.includes(opt)} onPress={() => toggle(opt)} />
-        ))}
-      </ScrollView>
-      <View style={styles.row}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.secondaryBtnText}>Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() =>
-            {
-              const onComplete = route?.params?.onComplete;
-              if (onComplete) {
-                onComplete({ selectedDiet, selectedCuisine, selectedMood, selectedPrice });
-              } else {
-                navigation.navigate('PreferenceMainPage', {
-                  selectedDiet,
-                  selectedCuisine,
-                  selectedMood,
-                  selectedPrice,
-                });
-              }
-            }
-          }
-        >
-          <Text style={styles.primaryBtnText}>See Recommendations</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
+// Preserve the step components (legacy) for compatibility; not used in new flow.
+export const PreferenceQuestionnaireStep2 = (props) => <PreferenceQuestionnaire {...props} />;
+export const PreferenceQuestionnaireStep3 = (props) => <PreferenceQuestionnaire {...props} />;
+export const PreferenceQuestionnaireStep4 = (props) => <PreferenceQuestionnaire {...props} />;
 
 // ---- Styles ----
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
   heading: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
+  subheading: { fontSize: 16, fontWeight: '700', marginTop: 8, marginBottom: 6 },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12,

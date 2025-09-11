@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
 import { availableItems, availableRestaurants } from '../data/mockData';
+import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 
 export default function PreferenceMainPage({ route, navigation, externalSelections }) {
   const {
@@ -31,6 +32,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
   // UX helpers
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('relevance'); // relevance | rating_desc | price_asc | price_desc
+  const [showPQ, setShowPQ] = useState(false);
 
   // -------- Filtering + sorting --------
   const filteredItems = useMemo(() => {
@@ -196,6 +198,14 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
       </View>
 
       {/* Active filter chips */}
+      {(selectedDiet.length + selectedCuisine.length + selectedMood.length + selectedPrice.length) > 0 && (
+        <View style={styles.filtersBar}>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity onPress={clearAll}>
+            <Text style={styles.resetLink}>Reset</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.chipsWrap}>
         {selectedDiet.map(v => (
           <FilterChip key={`diet-${v}`} label={`Type: ${v}`} onRemove={() => removeFilter('diet', v)} />
@@ -217,14 +227,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.primaryBtn}
-          onPress={() =>
-            navigation.navigate('PreferenceQuestionnaire', {
-              selectedDiet,
-              selectedCuisine,
-              selectedMood,
-              selectedPrice,
-            })
-          }
+          onPress={() => setShowPQ(true)}
         >
           <Text style={styles.primaryBtnText}>Edit Preferences</Text>
         </TouchableOpacity>
@@ -276,6 +279,19 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
           )}
         />
       )}
+      {/* Right-side filter sheet */}
+      <PreferenceQuestionnaireSheet
+        open={showPQ}
+        onClose={() => setShowPQ(false)}
+        initialSelections={{ selectedDiet, selectedCuisine, selectedMood, selectedPrice }}
+        onApply={(sel) => {
+          setSelectedDiet(sel.selectedDiet || []);
+          setSelectedCuisine(sel.selectedCuisine || []);
+          setSelectedMood(sel.selectedMood || []);
+          setSelectedPrice(sel.selectedPrice || []);
+          setShowPQ(false);
+        }}
+      />
     </View>
   );
 }
@@ -320,6 +336,8 @@ const styles = StyleSheet.create({
   sortTabText: { color: '#333' },
   sortTabTextActive: { color: '#fff' },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  filtersBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 4 },
+  resetLink: { color: '#6B7280', fontWeight: '700' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

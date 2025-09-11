@@ -1,12 +1,47 @@
 // screens/UpdatesScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Pressable, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { getUpdates, addUpdate } from '../state/updatesStore';
+import { availableRestaurants } from '../data/mockData';
 
 function Post({ post }) {
+  const navigation = useNavigation();
   const date = new Date(post.dateISO);
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const renderWithMentions = (t) => {
+    const parts = [];
+    const regex = /@([A-Za-z0-9._\-]{1,40})/g; // username: no spaces
+    let lastIndex = 0;
+    let m;
+    while ((m = regex.exec(t)) !== null) {
+      if (m.index > lastIndex) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex, m.index)}</Text>);
+      const name = m[1];
+      const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
+      const r = (availableRestaurants || []).find(rr => norm(rr.name) === norm(name));
+      if (r) {
+        parts.push(
+          <Text
+            key={`m-${m.index}`}
+            style={styles.mention}
+            onPress={() => navigation.navigate('RestaurantDetail', { restaurant: r })}
+          >
+            @{name}
+          </Text>
+        );
+      } else {
+        parts.push(
+          <Text key={`m-${m.index}`} style={styles.mention}>
+            @{name}
+          </Text>
+        );
+      }
+      lastIndex = m.index + m[0].length;
+    }
+    if (lastIndex < t.length) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex)}</Text>);
+    return parts;
+  };
   return (
     <View style={styles.card}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -18,7 +53,7 @@ function Post({ post }) {
         </View>
         <Text style={styles.timestamp}>{time}</Text>
       </View>
-      <Text style={styles.text}>{post.text}</Text>
+      <Text style={styles.text}>{renderWithMentions(post.text)}</Text>
     </View>
   );
 }
@@ -27,6 +62,33 @@ export default function UpdatesScreen() {
   const [feed, setFeed] = React.useState(getUpdates());
   const [text, setText] = React.useState('');
   const [author, setAuthor] = React.useState('You');
+  const [selection, setSelection] = React.useState({ start: 0, end: 0 });
+  const [mentionQuery, setMentionQuery] = React.useState(null); // { start, query, hadAt }
+
+  // Build tag sources: restaurant owners + known users (from reviews + existing feed)
+  const ownerTags = React.useMemo(
+    () => (availableRestaurants || []).map(r => ({ id: r.id, name: r.name, type: 'owner' })),
+    []
+  );
+  const userTags = React.useMemo(() => {
+    const users = new Set();
+    (availableRestaurants || []).forEach(r => {
+      (r.reviews || []).forEach(rv => users.add(rv.user));
+    });
+    (feed || []).forEach(p => { if (p.role === 'user') users.add(p.author); });
+    return Array.from(users).map(u => ({ id: `user-${u}`, name: u, type: 'user' }));
+  }, [feed]);
+  const allTags = React.useMemo(() => [...ownerTags, ...userTags], [ownerTags, userTags]);
+
+  const visibleSuggestions = React.useMemo(() => {
+    if (!mentionQuery || !mentionQuery.hadAt || !mentionQuery.query) return [];
+    const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
+    const q = norm(mentionQuery.query);
+    if (q.length < 1) return [];
+    return allTags
+      .filter(t => norm(t.name).includes(q))
+      .slice(0, 8);
+  }, [mentionQuery, allTags]);
 
   const submit = () => {
     const trimmed = text.trim();
@@ -35,6 +97,50 @@ export default function UpdatesScreen() {
     addUpdate({ author: authorName, role: 'user', text: trimmed });
     setFeed(getUpdates());
     setText('');
+    setMentionQuery(null);
+  };
+
+  const updateMentionState = (nextText, sel) => {
+    try {
+      const cursor = sel?.start ?? 0;
+      const upto = nextText.slice(0, cursor);
+      const at = upto.lastIndexOf('@');
+      if (at === -1) { setMentionQuery(null); return; }
+      const beforeChar = at > 0 ? upto[at - 1] : '';
+      if (beforeChar && !/\s/.test(beforeChar)) { setMentionQuery(null); return; }
+      let token = upto.slice(at + 1);
+      // stop at first whitespace so username token has no spaces
+      token = token.split(/\s/)[0];
+      if (token.includes('\n') || token.includes('\r') || token.includes('@')) { setMentionQuery(null); return; }
+      setMentionQuery({ start: at, query: token, hadAt: true });
+    } catch {
+      setMentionQuery(null);
+    }
+  };
+
+  const handleChangeText = (val) => {
+    setText(val);
+    updateMentionState(val, selection);
+  };
+
+  const handleSelectionChange = ({ nativeEvent: { selection: sel } }) => {
+    setSelection(sel);
+    updateMentionState(text, sel);
+  };
+
+  const insertMention = (tag) => {
+    if (!mentionQuery) return;
+    const cursor = selection?.start ?? text.length;
+    const start = mentionQuery.start; // at-sign index
+    const before = text.slice(0, start);
+    const after = text.slice(cursor);
+    const username = String(tag.name).replace(/\s+/g, '');
+    const insert = `@${username} `;
+    const next = `${before}${insert}${after}`;
+    const nextCursor = (before + insert).length;
+    setText(next);
+    setSelection({ start: nextCursor, end: nextCursor });
+    setMentionQuery(null);
   };
 
   return (
@@ -49,13 +155,28 @@ export default function UpdatesScreen() {
           onChangeText={setAuthor}
           style={styles.inputSmall}
         />
-        <TextInput
-          placeholder="Share an update..."
-          value={text}
-          onChangeText={setText}
-          style={styles.input}
-          multiline
-        />
+        <View style={{ position: 'relative', zIndex: 20, marginBottom: visibleSuggestions.length > 0 ? 120 : 0 }}>
+          <TextInput
+            placeholder="Share an update..."
+            value={text}
+            onChangeText={handleChangeText}
+            style={styles.input}
+            multiline
+            onSelectionChange={handleSelectionChange}
+            selection={selection}
+          />
+          {visibleSuggestions.length > 0 && (
+            <View style={styles.suggestBox}>
+              {visibleSuggestions.map(s => (
+                <Pressable key={s.type + s.id} onPress={() => insertMention(s)} style={styles.suggestItem}>
+                  <Ionicons name={s.type === 'owner' ? 'storefront' : 'person'} size={16} color="#6B7280" style={{ marginRight: 8 }} />
+                  <Text style={{ flex: 1 }}>{s.name}</Text>
+                  {s.type === 'owner' && <Text style={styles.ownerPill}>Owner</Text>}
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
         <TouchableOpacity onPress={submit} style={styles.postBtn}>
           <Text style={{ color: '#fff', fontWeight: '700' }}>Post</Text>
         </TouchableOpacity>
@@ -82,4 +203,27 @@ const styles = StyleSheet.create({
   author: { fontWeight: '800' },
   timestamp: { color: '#9ca3af' },
   text: { marginTop: 6, color: '#111827' },
+  mention: { color: '#007AFF', fontWeight: '700' },
+  suggestBox: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 56,
+    backgroundColor: '#fff',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+    zIndex: 30,
+  },
+  suggestItem: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f3f4f6',
+  },
+  ownerPill: { color: '#10B981', fontWeight: '700', fontSize: 12 },
 });

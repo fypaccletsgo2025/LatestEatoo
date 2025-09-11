@@ -1,6 +1,6 @@
-// screens/ExploreTabsScreen.js
+// screens/ExploreTabsScreen.js 
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import ExploreHomeScreen from './ExploreHomeScreen';
@@ -10,6 +10,7 @@ import LibraryScreen from './LibraryScreen';
 import PreferenceMainPage from './PreferenceMainPage';
 import FoodlistMainScreen from './FoodlistMainScreen';
 import { PreferenceQuestionnaire, PreferenceQuestionnaireStep2, PreferenceQuestionnaireStep3, PreferenceQuestionnaireStep4 } from './PreferenceQuestionnaire';
+import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
 
 const TabButton = ({ label, icon, active, onPress }) => (
@@ -51,8 +52,7 @@ export default function ExploreTabsScreen() {
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPQ, setShowPQ] = useState(false);
-  const [pqStep, setPqStep] = useState(1);
-  const [pqSelections, setPqSelections] = useState({ selectedDiet: [], selectedCuisine: [], selectedMood: [], selectedPrice: [] });
+  // Right-side questionnaire state
   const [appliedSelections, setAppliedSelections] = useState(null);
 
   return (
@@ -60,7 +60,7 @@ export default function ExploreTabsScreen() {
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}>
           <TouchableOpacity
-            onPress={() => setDrawerOpen(true)}
+            onPress={() => { Keyboard.dismiss(); setDrawerOpen(true); }}
             style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e5e7eb', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}
           >
             <Text style={{ color: '#6B7280' }}>☰</Text>
@@ -72,7 +72,7 @@ export default function ExploreTabsScreen() {
         {tab === 'home' && (
           <ExploreHomeScreen
             onOpenDrawer={() => setDrawerOpen(true)}
-            onStartQuestionnaire={() => { setShowPQ(true); setPqStep(1); }}
+            onStartQuestionnaire={() => { setShowPQ(true); }}
             externalSelections={appliedSelections}
           />
         )}
@@ -103,54 +103,7 @@ export default function ExploreTabsScreen() {
             {/* Only non-tab destinations in the drawer */}
             <DrawerItem label="Business Profile" onPress={() => { setDrawerOpen(false); navigation.navigate('BusinessProfile'); }} />
             <DrawerItem label="Password & Security" onPress={() => { setDrawerOpen(false); navigation.navigate('PasswordSecurity'); }} />
-            <DrawerItem label="Preference Questions" onPress={() => { setDrawerOpen(false); setShowPQ(true); setPqStep(1); }} />
             <DrawerItem label="Privacy" onPress={() => { setDrawerOpen(false); navigation.navigate('Privacy'); }} />
-          </View>
-        </>
-      )}
-      {/* Embedded Preference Questionnaire overlay */}
-      {showPQ && (
-        <>
-          <TouchableOpacity
-            style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.2)' }}
-            onPress={() => setShowPQ(false)}
-          />
-          <View style={{ position: 'absolute', top: 40, left: 12, right: 12, bottom: 80, backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' }}>
-            {pqStep === 1 && (
-              <PreferenceQuestionnaire
-                route={{ params: { selectedDiet: pqSelections.selectedDiet } }}
-                navigation={{
-                  navigate: (_name, params) => { setPqSelections(prev => ({ ...prev, selectedDiet: params.selectedDiet })); setPqStep(2); },
-                }}
-              />
-            )}
-            {pqStep === 2 && (
-              <PreferenceQuestionnaireStep2
-                route={{ params: { selectedDiet: pqSelections.selectedDiet, selectedCuisine: pqSelections.selectedCuisine } }}
-                navigation={{
-                  navigate: (_name, params) => { setPqSelections(prev => ({ ...prev, selectedCuisine: params.selectedCuisine })); setPqStep(3); },
-                  goBack: () => setPqStep(1),
-                }}
-              />
-            )}
-            {pqStep === 3 && (
-              <PreferenceQuestionnaireStep3
-                route={{ params: { selectedDiet: pqSelections.selectedDiet, selectedCuisine: pqSelections.selectedCuisine, selectedMood: pqSelections.selectedMood } }}
-                navigation={{
-                  navigate: (_name, params) => { setPqSelections(prev => ({ ...prev, selectedMood: params.selectedMood })); setPqStep(4); },
-                  goBack: () => setPqStep(2),
-                }}
-              />
-            )}
-            {pqStep === 4 && (
-              <PreferenceQuestionnaireStep4
-                route={{ params: { selectedDiet: pqSelections.selectedDiet, selectedCuisine: pqSelections.selectedCuisine, selectedMood: pqSelections.selectedMood, selectedPrice: pqSelections.selectedPrice, onComplete: (sel) => {
-                  setAppliedSelections(sel);
-                  setShowPQ(false);
-                } } }}
-                navigation={{ goBack: () => setPqStep(3) }}
-              />
-            )}
           </View>
         </>
       )}
@@ -176,6 +129,13 @@ export default function ExploreTabsScreen() {
         <TabButton label="Updates" icon={tab === 'review' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} active={tab === 'review'} onPress={() => setTab('review')} />
         <TabButton label="Library" icon={tab === 'library' ? 'book' : 'book-outline'} active={tab === 'library'} onPress={() => setTab('library')} />
       </View>
+      {/* Right-side filter sheet (Shopee-like) - render last so it's on top */}
+      <PreferenceQuestionnaireSheet
+        open={showPQ}
+        onClose={() => setShowPQ(false)}
+        initialSelections={appliedSelections || { selectedDiet: [], selectedCuisine: [], selectedMood: [], selectedPrice: [] }}
+        onApply={(sel) => { setAppliedSelections(sel); setShowPQ(false); }}
+      />
     </SafeAreaView>
   );
 }

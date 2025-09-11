@@ -13,6 +13,21 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
 
+  const hasActiveFilters =
+    (selectedDiet?.length || 0) +
+    (selectedCuisine?.length || 0) +
+    (selectedMood?.length || 0) +
+    (selectedPrice?.length || 0) > 0;
+
+  const clearAll = () => {
+    setSelectedDiet([]);
+    setSelectedCuisine([]);
+    setSelectedMood([]);
+    setSelectedPrice([]);
+    setSearch('');
+    setSortBy('relevance');
+  };
+
   useEffect(() => {
     if (externalSelections) {
       const { selectedDiet = [], selectedCuisine = [], selectedMood = [], selectedPrice = [] } = externalSelections;
@@ -104,7 +119,7 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
     if (group === 'mood') setSelectedMood(prev => prev.filter(v => String(v).toLowerCase() !== lower));
     if (group === 'price') setSelectedPrice(prev => prev.filter(v => String(v).toLowerCase() !== lower));
   };
-  const clearAll = () => { setSelectedDiet([]); setSelectedCuisine([]); setSelectedMood([]); setSelectedPrice([]); setSearch(''); setSortBy('relevance'); };
+  
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }}>
@@ -128,6 +143,13 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
               </TouchableOpacity>
             ))}
           </View>
+          {hasActiveFilters && (
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 4 }}>
+              <TouchableOpacity onPress={clearAll}>
+                <Text style={{ color: '#6B7280', fontWeight: '700' }}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
             {selectedDiet.map(v => (<FilterChip key={`diet-${v}`} label={`Type: ${v}`} />))}
             {selectedCuisine.map(v => (<FilterChip key={`cuisine-${v}`} label={`Cuisine: ${v}`} />))}

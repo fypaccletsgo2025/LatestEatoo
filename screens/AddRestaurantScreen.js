@@ -1,6 +1,6 @@
 // screens/AddRestaurantScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, Pressable, Keyboard } from 'react-native';
 
 export default function AddRestaurantScreen() {
   const [name, setName] = React.useState('');
@@ -24,35 +24,42 @@ export default function AddRestaurantScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Recommend a Restaurant</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ flexGrow: 1 }}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
+      <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
+        <Text style={styles.title}>Recommend a Restaurant</Text>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Restaurant Name *</Text>
-        <TextInput value={name} onChangeText={setName} placeholder="Restaurant name" style={styles.input} />
+        <View style={styles.card}>
+          <Text style={styles.label}>Restaurant Name *</Text>
+          <TextInput value={name} onChangeText={setName} placeholder="Restaurant name" style={styles.input} />
 
-        <Text style={styles.label}>Location *</Text>
-        <TextInput value={location} onChangeText={setLocation} placeholder="Location" style={styles.input} />
+          <Text style={styles.label}>Location *</Text>
+          <TextInput value={location} onChangeText={setLocation} placeholder="Location" style={styles.input} />
 
-        <Text style={styles.label}>Cuisine</Text>
-        <TextInput value={cuisine} onChangeText={setCuisine} placeholder="Cuisine" style={styles.input} />
+          <Text style={styles.label}>Cuisine</Text>
+          <TextInput value={cuisine} onChangeText={setCuisine} placeholder="Cuisine" style={styles.input} />
 
-        <Text style={styles.label}>Contact (optional)</Text>
-        <TextInput value={contact} onChangeText={setContact} placeholder="email/phone/IG handle" style={styles.input} />
+          <Text style={styles.label}>Contact (optional)</Text>
+          <TextInput value={contact} onChangeText={setContact} placeholder="email/phone/IG handle" style={styles.input} />
 
-        <Text style={styles.label}>Notes (optional)</Text>
-        <TextInput
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Anything we should know?"
-          style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
-          multiline
-        />
+          <Text style={styles.label}>Notes (optional)</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Anything we should know?"
+            style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+            multiline
+          />
 
-        <TouchableOpacity onPress={submit} style={styles.submitBtn}>
-          <Text style={{ color: '#fff', fontWeight: '700' }}>Submit Recommendation</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity onPress={submit} style={styles.submitBtn}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Submit Recommendation</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
     </ScrollView>
   );
 }

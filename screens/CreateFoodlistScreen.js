@@ -1,5 +1,4 @@
-// screens/CreateFoodlistScreen.js
-
+// screens/CreateFoodlistScreen.js 
 import React, { useState } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { availableItems } from '../data/mockData';
