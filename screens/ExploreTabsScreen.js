@@ -1,6 +1,7 @@
 // screens/ExploreTabsScreen.js 
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Keyboard } from 'react-native';
+import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import ExploreHomeScreen from './ExploreHomeScreen';

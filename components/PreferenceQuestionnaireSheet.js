@@ -1,6 +1,7 @@
 // components/PreferenceQuestionnaireSheet.js
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import RightSheet from './RightSheet';
 import { PreferenceQuestionnaire } from '../screens/PreferenceQuestionnaire';
 
