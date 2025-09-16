@@ -1,6 +1,6 @@
 // data/mockData.js
 
-// Curated restaurants with multiple menus and items
+// restaurants with multiple menus and items
 const restaurantsCurated = [
   {
     id: 'rest-sakura-ramen',
@@ -395,7 +395,7 @@ const restaurantsCurated = [
   },
 ];
 
-// Flatten menus into availableItems to keep compatibility
+// menus into availableItems to keep compatibility
 const flattenMenuItems = (restaurants) => {
   const items = [];
   for (const r of restaurants) {
@@ -451,13 +451,26 @@ export const availableItems = flattenMenuItems(restaurantsCurated);
 
 export const mockFoodlists = [
   {
-    id: '1',
-    name: 'Lunch Favorites',
-    items: availableItems.filter(i => ['Spicy Ramen', 'Margarita Pizza', 'Grilled Chicken Chop'].includes(i.name)),
-  },
-  {
     id: '2',
     name: 'Sweet Treats',
     items: availableItems.filter(i => ['Chocolate Brownie', 'Mango Sticky Rice', 'Eclair'].includes(i.name)),
   },
 ];
+
+// A sample invited foodlist in notifications
+export const sampleInviteFoodlist = {
+  id: 'invite-1',
+  name: 'Nak makan apa ni',
+  items: availableItems.filter(i => ['Spicy Ramen', 'Margarita Pizza', 'Grilled Chicken Chop'].includes(i.name)),
+};
+
+// Mock users derived from restaurant reviews
+const collectMockUsers = () => {
+  const names = new Set();
+  for (const r of restaurantsCurated) {
+    (r.reviews || []).forEach((rv) => names.add(rv.user));
+  }
+  return Array.from(names).map((n, idx) => ({ id: `user-${idx + 1}`, name: n }));
+};
+
+export const mockUsers = collectMockUsers();
