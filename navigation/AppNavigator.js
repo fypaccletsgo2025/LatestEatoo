@@ -34,6 +34,8 @@ import PasswordSecurityScreen from '../screens/PasswordSecurityScreen';
 import FriendPreferenceQuestionsScreen from '../screens/FriendPreferenceQuestionsScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
 import DiscoverResultsScreen from '../screens/DiscoverResultsScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import ManageRestaurantScreen from '../screens/ManageRestaurantScreen';
 
 const Stack = createStackNavigator();
 
@@ -71,6 +73,8 @@ export default function AppNavigator() {
         <Stack.Screen name="PasswordSecurity" component={PasswordSecurityScreen} options={{ title: 'Password & Security' }} />
         <Stack.Screen name="FriendPreferenceQuestions" component={FriendPreferenceQuestionsScreen} options={{ title: 'Preference Questions' }} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ title: 'Privacy' }} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
+        <Stack.Screen name="ManageRestaurant" component={ManageRestaurantScreen} options={{ title: 'Manage Restaurant' }} />
         <Stack.Screen name="DiscoverResults" component={DiscoverResultsScreen} options={{ title: 'Discover' }} />
       </Stack.Navigator>
     </NavigationContainer>

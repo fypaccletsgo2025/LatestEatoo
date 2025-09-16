@@ -27,6 +27,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
       id: Date.now().toString(),
       name,
       items: selectedItems,
+      members: [],
     };
 
     setFoodlists((prev) => [...prev, newList]);

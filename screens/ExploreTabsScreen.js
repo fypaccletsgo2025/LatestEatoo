@@ -105,6 +105,7 @@ export default function ExploreTabsScreen() {
             <DrawerItem label="Business Profile" onPress={() => { setDrawerOpen(false); navigation.navigate('BusinessProfile'); }} />
             <DrawerItem label="Password & Security" onPress={() => { setDrawerOpen(false); navigation.navigate('PasswordSecurity'); }} />
             <DrawerItem label="Privacy" onPress={() => { setDrawerOpen(false); navigation.navigate('Privacy'); }} />
+            <DrawerItem label="Notifications" onPress={() => { setDrawerOpen(false); navigation.navigate('Notifications'); }} />
           </View>
         </>
       )}

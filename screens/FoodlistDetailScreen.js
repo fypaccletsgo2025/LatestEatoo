@@ -1,8 +1,8 @@
 // screens/FoodlistDetailScreen.js
 
-import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
-import { mockFoodlists, availableItems } from '../data/mockData';
+import React, { useRef, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Alert, TextInput, Modal } from 'react-native';
+import { availableItems, mockUsers } from '../data/mockData';
 
 export default function FoodlistDetailScreen({ route, navigation }) {
   const { foodlist, setFoodlists } = route.params; // passed from main screen
@@ -11,10 +11,22 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   const [currentList, setCurrentList] = useState({
     ...foodlist,
     items: (foodlist?.items ?? []).filter(Boolean),
+    members: Array.isArray(foodlist?.members) ? [...foodlist.members] : [],
   });
   const [addingItems, setAddingItems] = useState(false);
   const [selectedToAdd, setSelectedToAdd] = useState([]);
   const [selectedToRemove, setSelectedToRemove] = useState([]);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [contributorsOpen, setContributorsOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const toastTimerRef = useRef(null);
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(''), 2000);
+  };
 
   // Toggle item selection for adding
   const toggleAdd = (item) => {
@@ -100,7 +112,135 @@ export default function FoodlistDetailScreen({ route, navigation }) {
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#d1ccc7' }}>
-      <Text style={{ fontSize: 22, fontWeight: '800', marginBottom: 16 }}>{currentList.name}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <Text style={{ fontSize: 22, fontWeight: '800' }}>{currentList.name}</Text>
+        <View style={{ flexDirection: 'row' }}>
+          {currentList.members?.length > 0 && (
+            <TouchableOpacity
+              accessibilityLabel="View contributors"
+              onPress={() => setContributorsOpen(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#374151',
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 16,
+                marginRight: 8,
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 16, lineHeight: 18 }}>👥</Text>
+              <Text style={{ color: '#fff', marginLeft: 6 }}>{currentList.members.length}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            accessibilityLabel="Invite collaborators"
+            onPress={() => setInviteOpen(true)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#111827',
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 16,
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, lineHeight: 18 }}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Invite Modal */}
+      <Modal visible={inviteOpen} transparent animationType="slide" onRequestClose={() => setInviteOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, maxHeight: '75%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Invite collaborators</Text>
+            <TextInput
+              placeholder="Search username"
+              value={inviteQuery}
+              onChangeText={setInviteQuery}
+              autoFocus
+              style={{
+                borderWidth: 1,
+                borderColor: '#e5e7eb',
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 12,
+              }}
+            />
+            <FlatList
+              data={mockUsers.filter(u => !currentList.members?.some(m => String(m).toLowerCase() === u.name.toLowerCase()) && u.name.toLowerCase().includes(inviteQuery.toLowerCase()))}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => {
+                    const updated = { ...currentList, members: [...(currentList.members || []), item.name] };
+                    setCurrentList(updated);
+                    setFoodlists((prev) => prev.map((f) => (f.id === currentList.id ? updated : f)));
+                    showToast('Invitation sent');
+                  }}
+                  style={{
+                    paddingVertical: 12,
+                    paddingHorizontal: 8,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#f3f4f6',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#c7d2fe', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#111827' }}>{item.name.split(/\s+/).map(p => p[0]?.toUpperCase()).slice(0,2).join('')}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16 }}>{item.name}</Text>
+                  </View>
+                  <Text style={{ color: '#10b981', fontWeight: '700' }}>Invite</Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={{ paddingVertical: 20, color: '#6b7280' }}>No users found</Text>}
+            />
+            <TouchableOpacity onPress={() => setInviteOpen(false)} style={{ marginTop: 12, backgroundColor: '#111827', paddingVertical: 12, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+
+      {/* Contributors Modal */}
+      <Modal visible={contributorsOpen} transparent animationType="fade" onRequestClose={() => setContributorsOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, maxHeight: '70%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Contributors</Text>
+            <FlatList
+              data={(currentList.members || []).map((m, idx) => ({ id: `${idx}-${m}`, name: m }))}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <View
+                  style={{
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#f3f4f6',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#c7d2fe', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#111827' }}>{item.name.split(/\s+/).map(p => p[0]?.toUpperCase()).slice(0,2).join('')}</Text>
+                  </View>
+                  <Text style={{ fontSize: 16 }}>{item.name}</Text>
+                </View>
+              )}
+              ListEmptyComponent={null}
+            />
+            <TouchableOpacity onPress={() => setContributorsOpen(false)} style={{ marginTop: 12, backgroundColor: '#111827', paddingVertical: 12, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {!addingItems ? (
         <>
@@ -180,6 +320,20 @@ export default function FoodlistDetailScreen({ route, navigation }) {
           </TouchableOpacity>
         </>
       )}
+      {/* Toast Modal: always above everything, including other modals */}
+      <Modal
+        visible={!!toastMessage}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }}>
+          <View style={{ backgroundColor: 'rgba(17,24,39,0.95)', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12 }}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>{toastMessage}</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
