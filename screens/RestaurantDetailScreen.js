@@ -3,16 +3,19 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { availableItems } from '../data/mockData';
+import { getUserItemsForRestaurant, addUserItem } from '../state/userMenusStore';
 import { isRestaurantSaved, saveRestaurant, unsaveRestaurant } from '../state/libraryStore';
 import { getUserReviews, addUserReview } from '../state/reviewsStore';
 
 export default function RestaurantDetailScreen({ route, navigation }) {
   const { restaurant } = route.params;
 
-  const items = useMemo(
-    () => availableItems.filter(i => i.restaurant === restaurant.name),
-    [restaurant.name]
-  );
+  const [menuVersion, setMenuVersion] = useState(0);
+  const items = useMemo(() => {
+    const base = availableItems.filter(i => i.restaurant === restaurant.name);
+    const user = getUserItemsForRestaurant(restaurant.id);
+    return [...base, ...user];
+  }, [restaurant.name, restaurant.id, menuVersion]);
 
   const [userReviews, setUserReviews] = useState(getUserReviews(restaurant.id));
   const [showReview, setShowReview] = useState(false);
@@ -22,6 +25,12 @@ export default function RestaurantDetailScreen({ route, navigation }) {
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(isRestaurantSaved(restaurant.id));
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('meal');
+  const [newPrice, setNewPrice] = useState('');
+  const [newRating, setNewRating] = useState('');
+  const [newDesc, setNewDesc] = useState('');
 
   return (
     <ScrollView style={styles.container}>
@@ -101,8 +110,9 @@ export default function RestaurantDetailScreen({ route, navigation }) {
         />
       </Section>
 
+
       {/* Reviews */}
-      {((userReviews && userReviews.length) || (restaurant.reviews && restaurant.reviews.length)) ? (
+  {((userReviews && userReviews.length) || (restaurant.reviews && restaurant.reviews.length)) ? (
         <Section title="Reviews">
           {[...userReviews, ...(restaurant.reviews || [])].map((rev, idx) => (
             <View key={`rev-${idx}`} style={styles.reviewCard}>
@@ -115,7 +125,9 @@ export default function RestaurantDetailScreen({ route, navigation }) {
                   {typeof rev.location === 'number' && <Badge text={`Location ${rev.location}★`} color="#fde68a" />}
                   {typeof rev.coziness === 'number' && <Badge text={`Coziness ${rev.coziness}★`} color="#fde68a" />}
                 </View>
-              ) : null}
+  ) : null}
+
+      
             </View>
           ))}
         </Section>
@@ -269,6 +281,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     alignItems: 'center',
+  },
+  plusFab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    elevation: 4,
   },
 });
 

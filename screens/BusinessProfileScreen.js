@@ -1,11 +1,13 @@
 // screens/BusinessProfileScreen.js
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { getBusinessProfile, submitBusinessProfile } from '../state/businessStore';
 
 export default function BusinessProfileScreen() {
   const [bp, setBp] = React.useState(getBusinessProfile());
   const [showForm, setShowForm] = React.useState(false);
+  const navigation = useNavigation();
 
   // Form fields
   const [name, setName] = React.useState('');
@@ -88,6 +90,34 @@ export default function BusinessProfileScreen() {
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowForm(false)} style={[styles.btn, { backgroundColor: '#6b7280', marginTop: 8 }]}>
             <Text style={styles.btnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Demo: Already Registered Restaurant */}
+      {!showForm && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Espurrsso Bar</Text>
+            <Text style={{ color: '#6b7280', marginBottom: 10 }}>Cat cafe • Mont Kiara, KL</Text>
+          <TouchableOpacity
+            onPress={() => {
+              const demoRestaurant = {
+                id: 'rest-espurrsso-bar',
+                name: 'Espurrsso Bar',
+                location: 'Mont Kiara, KL',
+                cuisines: ['cafe'],
+                cuisine: 'cafe',
+                ambience: ['cat cafe', 'cozy', 'family friendly'],
+                rating: 4.7,
+                averagePrice: 'RM18',
+                averagePriceValue: 18,
+                theme: 'Cat cafe with specialty espresso and cuddly resident cats.',
+              };
+              navigation.navigate('ManageRestaurant', { restaurant: demoRestaurant });
+            }}
+            style={[styles.btn, { backgroundColor: '#111827' }]}
+          >
+            <Text style={styles.btnText}>Open Restaurant & Manage Menu</Text>
           </TouchableOpacity>
         </View>
       )}
