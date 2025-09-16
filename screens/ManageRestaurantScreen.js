@@ -26,7 +26,7 @@ export default function ManageRestaurantScreen({ route }) {
   // Add-item modal state
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState('drink');
+  const [type, setType] = useState('');
   const [price, setPrice] = useState('');
   const [desc, setDesc] = useState('');
   const [tags, setTags] = useState('');
