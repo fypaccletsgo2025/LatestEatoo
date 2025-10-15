@@ -1,9 +1,27 @@
 // screens/ExploreHomeScreen.js
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { availableItems, availableRestaurants } from '../data/mockData';
+import { availableItems, availableRestaurants, mockUserInteractions } from '../data/mockData';
+import { getNaiveBayesRecommendationsForUser } from '../data/naiveBayes';
+import { getLikedItemIds, getSavedRestaurantIds } from '../state/libraryStore';
+
+const PRICE_BUCKETS = {
+  'RM0-RM10': (price) => price <= 10,
+  'RM11-RM20': (price) => price >= 11 && price <= 20,
+  'RM21-RM30': (price) => price >= 21 && price <= 30,
+  'RM31+': (price) => price >= 31,
+};
+
+function normaliseString(value) {
+  return String(value || '').toLowerCase().replace(/ /g, '');
+}
+
+function parsePrice(value) {
+  const parsed = parseInt(String(value).replace('RM', ''), 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
 
 export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, externalSelections }) {
   const navigation = useNavigation();
@@ -13,6 +31,82 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
   const [selectedPrice, setSelectedPrice] = useState([]);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
+
+  const defaultUserId = useMemo(() => {
+    const ids = Object.keys(mockUserInteractions || {});
+    return ids.length ? ids[0] : null;
+  }, []);
+
+  const baseInteractions = useMemo(() => (
+    defaultUserId ? (mockUserInteractions?.[defaultUserId] || {}) : {}
+  ), [defaultUserId]);
+
+  const restaurantByName = useMemo(() => {
+    const map = new Map();
+    availableRestaurants.forEach((restaurant) => {
+      map.set(restaurant.name, restaurant);
+    });
+    return map;
+  }, []);
+
+  const itemRestaurantMap = useMemo(() => {
+    const map = new Map();
+    availableItems.forEach((item) => {
+      const restaurant = restaurantByName.get(item.restaurant);
+      if (restaurant) {
+        map.set(item.id, restaurant.id);
+      }
+    });
+    return map;
+  }, [restaurantByName]);
+
+  const buildUserInteractions = useCallback(() => {
+    const base = baseInteractions || {};
+    const savedIds = new Set([...(base.savedRestaurantIds || []), ...getSavedRestaurantIds()]);
+    const likedItemIds = new Set([...(base.likedItemIds || []), ...getLikedItemIds()]);
+    const likedRestaurantIds = new Set(base.likedRestaurantIds || []);
+    const visitedRestaurantIds = new Set(base.visitedRestaurantIds || []);
+
+    savedIds.forEach((id) => likedRestaurantIds.add(id));
+    likedItemIds.forEach((itemId) => {
+      const restaurantId = itemRestaurantMap.get(itemId);
+      if (restaurantId) likedRestaurantIds.add(restaurantId);
+    });
+
+    return {
+      likedRestaurantIds: Array.from(likedRestaurantIds),
+      savedRestaurantIds: Array.from(savedIds),
+      visitedRestaurantIds: Array.from(visitedRestaurantIds),
+      likedItemIds: Array.from(likedItemIds),
+    };
+  }, [baseInteractions, itemRestaurantMap]);
+
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  const userInteractions = useMemo(() => buildUserInteractions(), [buildUserInteractions, refreshToken]);
+
+  const handleRefresh = useCallback(() => {
+    if (!defaultUserId) return;
+    setRefreshToken((token) => token + 1);
+  }, [defaultUserId]);
+
+  const naiveBayesContext = useMemo(() => {
+    if (!defaultUserId) {
+      return { recommendations: [], probabilityById: new Map() };
+    }
+    const interactionsForModel = userInteractions || baseInteractions || {};
+    const results = getNaiveBayesRecommendationsForUser(defaultUserId, {
+      includeScores: true,
+      interactionsMap: { [defaultUserId]: interactionsForModel },
+    });
+    return {
+      recommendations: results.map((entry) => entry.restaurant),
+      probabilityById: new Map(results.map((entry) => [entry.restaurant.id, entry.probability])),
+    };
+  }, [defaultUserId, userInteractions, baseInteractions]);
+
+  const probabilityById = naiveBayesContext.probabilityById;
+  const canRefresh = Boolean(defaultUserId);
 
   const hasActiveFilters =
     (selectedDiet?.length || 0) +
@@ -31,96 +125,153 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
 
   useEffect(() => {
     if (externalSelections) {
-      const { selectedDiet = [], selectedCuisine = [], selectedMood = [], selectedPrice = [] } = externalSelections;
-      setSelectedDiet(selectedDiet);
-      setSelectedCuisine(selectedCuisine);
-      setSelectedMood(selectedMood);
-      setSelectedPrice(selectedPrice);
+      const {
+        selectedDiet: extDiet = [],
+        selectedCuisine: extCuisine = [],
+        selectedMood: extMood = [],
+        selectedPrice: extPrice = [],
+      } = externalSelections;
+      setSelectedDiet(extDiet);
+      setSelectedCuisine(extCuisine);
+      setSelectedMood(extMood);
+      setSelectedPrice(extPrice);
     }
   }, [externalSelections]);
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const items = availableItems.filter(item => {
-      const dietMatch =
-        selectedDiet.length === 0 ||
-        selectedDiet.some(d => d.toLowerCase() === String(item.type).toLowerCase());
-      const cuisineMatch =
-        selectedCuisine.length === 0 ||
-        selectedCuisine.some(c => c.toLowerCase() === String(item.cuisine).toLowerCase());
-      const r = availableRestaurants.find(rr => rr.name === item.restaurant);
-      const ambience = (r?.ambience || []).map(x => String(x).toLowerCase().replace(/ /g, ''));
-      const moodMatch = selectedMood.length === 0 || selectedMood.every(m => ambience.includes(String(m).toLowerCase().replace(/ /g, '')));
-      const priceMatch = selectedPrice.length === 0 || selectedPrice.some(range => {
-        const price = parseInt(String(item.price).replace('RM', ''));
-        switch (range) {
-          case 'RM0-RM10': return price <= 10;
-          case 'RM11-RM20': return price >= 11 && price <= 20;
-          case 'RM21-RM30': return price >= 21 && price <= 30;
-          case 'RM31+': return price >= 31;
-          default: return true;
-        }
-      });
-      const searchMatch = term.length === 0 || item.name.toLowerCase().includes(term) || String(item.restaurant).toLowerCase().includes(term);
+
+    const passesPriceBucket = (priceValue) => (
+      selectedPrice.length === 0 ||
+      selectedPrice.some((bucket) => {
+        const fn = PRICE_BUCKETS[bucket];
+        return typeof fn === 'function' ? fn(priceValue) : true;
+      })
+    );
+
+    const items = availableItems.filter((item) => {
+      const dietMatch = selectedDiet.length === 0 || selectedDiet.some((d) => normaliseString(d) === normaliseString(item.type));
+      const cuisineMatch = selectedCuisine.length === 0 || selectedCuisine.some((c) => normaliseString(c) === normaliseString(item.cuisine));
+
+      const restaurant = restaurantByName.get(item.restaurant);
+      const ambience = restaurant?.ambience || [];
+      const moodMatch = selectedMood.length === 0 || selectedMood.every((m) => ambience.map(normaliseString).includes(normaliseString(m)));
+
+      const priceValue = parsePrice(item.price);
+      const priceMatch = passesPriceBucket(priceValue);
+
+      const searchMatch = term.length === 0 ||
+        item.name.toLowerCase().includes(term) ||
+        String(item.restaurant).toLowerCase().includes(term);
+
       return dietMatch && cuisineMatch && moodMatch && priceMatch && searchMatch;
     });
+
     const sorted = [...items];
-    if (sortBy === 'rating_desc') sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc') sorted.sort((a, b) => parseInt(String(a.price).replace('RM', '')) - parseInt(String(b.price).replace('RM', '')));
-    else if (sortBy === 'price_desc') sorted.sort((a, b) => parseInt(String(b.price).replace('RM', '')) - parseInt(String(a.price).replace('RM', '')));
+
+    if (sortBy === 'rating_desc') {
+      sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sortBy === 'price_asc') {
+      sorted.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+    } else if (sortBy === 'price_desc') {
+      sorted.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+    } else if (!hasActiveFilters && term.length === 0 && probabilityById.size) {
+      sorted.sort((a, b) => {
+        const restaurantA = restaurantByName.get(a.restaurant);
+        const restaurantB = restaurantByName.get(b.restaurant);
+        const probA = restaurantA ? probabilityById.get(restaurantA.id) : undefined;
+        const probB = restaurantB ? probabilityById.get(restaurantB.id) : undefined;
+        if (probA === undefined && probB === undefined) return (b.rating ?? 0) - (a.rating ?? 0);
+        if (probA === undefined) return 1;
+        if (probB === undefined) return -1;
+        if (probB !== probA) return probB - probA;
+        return (b.rating ?? 0) - (a.rating ?? 0);
+      });
+    }
+
     return sorted;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy]);
+  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy, hasActiveFilters, probabilityById, restaurantByName]);
 
   const filteredRestaurants = useMemo(() => {
     const term = search.trim().toLowerCase();
-    let list = availableRestaurants.filter(r => {
-      const cuisineMatch = selectedCuisine.length === 0 || selectedCuisine.some(c => {
-        const cl = String(c).toLowerCase();
-        return cl === String(r.cuisine).toLowerCase() || r.cuisines.map(cc => String(cc).toLowerCase()).includes(cl);
+
+    const restaurantMatches = availableRestaurants.filter((restaurant) => {
+      const cuisines = restaurant.cuisines.map(normaliseString);
+      const cuisineMatch = selectedCuisine.length === 0 || selectedCuisine.some((c) => {
+        const lowered = normaliseString(c);
+        return lowered === normaliseString(restaurant.cuisine) || cuisines.includes(lowered);
       });
-      const moodMatch = selectedMood.length === 0 || selectedMood.every(m => r.ambience.map(mm => String(mm).toLowerCase().replace(/ /g, '')).includes(String(m).toLowerCase().replace(/ /g, '')));
-      const dietMatch = selectedDiet.length === 0 || availableItems.some(i => i.restaurant === r.name && selectedDiet.map(d => String(d).toLowerCase()).includes(String(i.type).toLowerCase()));
-      const itemPriceMatch = selectedPrice.length === 0 || availableItems.some(i => {
-        if (i.restaurant !== r.name) return false;
-        const p = parseInt(String(i.price).replace('RM', ''));
-        return selectedPrice.some(range => (
-          (range === 'RM0-RM10' && p <= 10) ||
-          (range === 'RM11-RM20' && p >= 11 && p <= 20) ||
-          (range === 'RM21-RM30' && p >= 21 && p <= 30) ||
-          (range === 'RM31+' && p >= 31)
-        ));
-      });
-      const priceMatch = selectedPrice.length === 0 ? true : itemPriceMatch || (r.matchesPriceRange ? selectedPrice.some(range => r.matchesPriceRange(range)) : true);
-      const searchMatch = term.length === 0 || r.name.toLowerCase().includes(term) || String(r.location).toLowerCase().includes(term) || String(r.theme).toLowerCase().includes(term);
-      const hasMatchingItem = availableItems.some(i => {
-        if (i.restaurant !== r.name) return false;
-        const dietOk = selectedDiet.length === 0 || selectedDiet.map(x => String(x).toLowerCase()).includes(String(i.type).toLowerCase());
-        const cuisineOk = selectedCuisine.length === 0 || selectedCuisine.map(x => String(x).toLowerCase()).includes(String(i.cuisine).toLowerCase());
-        const p = parseInt(String(i.price).replace('RM', ''));
-        const priceOk = selectedPrice.length === 0 || selectedPrice.some(range => (
-          (range === 'RM0-RM10' && p <= 10) ||
-          (range === 'RM11-RM20' && p >= 11 && p <= 20) ||
-          (range === 'RM21-RM30' && p >= 21 && p <= 30) ||
-          (range === 'RM31+' && p >= 31)
-        ));
+
+      const ambience = restaurant.ambience?.map(normaliseString) || [];
+      const moodMatch = selectedMood.length === 0 || selectedMood.every((m) => ambience.includes(normaliseString(m)));
+
+      const dietMatch = selectedDiet.length === 0 || availableItems.some((item) => (
+        item.restaurant === restaurant.name &&
+        selectedDiet.map(normaliseString).includes(normaliseString(item.type))
+      ));
+
+      const priceMatch = selectedPrice.length === 0 || availableItems.some((item) => {
+        if (item.restaurant !== restaurant.name) return false;
+        const priceValue = parsePrice(item.price);
+        return selectedPrice.some((bucket) => {
+          const fn = PRICE_BUCKETS[bucket];
+          return typeof fn === 'function' ? fn(priceValue) : true;
+        });
+      }) || (restaurant.matchesPriceRange ? selectedPrice.some((bucket) => restaurant.matchesPriceRange(bucket)) : true);
+
+      const searchMatch = term.length === 0 ||
+        restaurant.name.toLowerCase().includes(term) ||
+        String(restaurant.location).toLowerCase().includes(term) ||
+        String(restaurant.theme).toLowerCase().includes(term);
+
+      const hasMatchingItem = availableItems.some((item) => {
+        if (item.restaurant !== restaurant.name) return false;
+        const dietOk = selectedDiet.length === 0 || selectedDiet.map(normaliseString).includes(normaliseString(item.type));
+        const cuisineOk = selectedCuisine.length === 0 || selectedCuisine.map(normaliseString).includes(normaliseString(item.cuisine));
+        const priceValue = parsePrice(item.price);
+        const priceOk = selectedPrice.length === 0 || selectedPrice.some((bucket) => {
+          const fn = PRICE_BUCKETS[bucket];
+          return typeof fn === 'function' ? fn(priceValue) : true;
+        });
         return dietOk && cuisineOk && priceOk;
       });
+
       return cuisineMatch && moodMatch && dietMatch && priceMatch && hasMatchingItem && searchMatch;
     });
-    if (sortBy === 'rating_desc') list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc') list = [...list].sort((a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0));
-    else if (sortBy === 'price_desc') list = [...list].sort((a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0));
-    return list;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy]);
+
+    if (sortBy === 'rating_desc') {
+      return [...restaurantMatches].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    }
+    if (sortBy === 'price_asc') {
+      return [...restaurantMatches].sort((a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0));
+    }
+    if (sortBy === 'price_desc') {
+      return [...restaurantMatches].sort((a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0));
+    }
+    if (!hasActiveFilters && term.length === 0 && probabilityById.size) {
+      return [...restaurantMatches].sort((a, b) => {
+        const probA = probabilityById.get(a.id);
+        const probB = probabilityById.get(b.id);
+        if (probA === undefined && probB === undefined) return (b.rating ?? 0) - (a.rating ?? 0);
+        if (probA === undefined) return 1;
+        if (probB === undefined) return -1;
+        if (probB !== probA) return probB - probA;
+        return (b.rating ?? 0) - (a.rating ?? 0);
+      });
+    }
+
+    return restaurantMatches;
+  }, [selectedCuisine, selectedMood, selectedDiet, selectedPrice, search, sortBy, hasActiveFilters, probabilityById]);
+
+  const isPersonalized = !hasActiveFilters && search.trim().length === 0 && probabilityById.size > 0;
 
   const removeFilter = (group, value) => {
-    const lower = String(value).toLowerCase();
-    if (group === 'diet') setSelectedDiet(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'cuisine') setSelectedCuisine(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'mood') setSelectedMood(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'price') setSelectedPrice(prev => prev.filter(v => String(v).toLowerCase() !== lower));
+    const lowered = normaliseString(value);
+    if (group === 'diet') setSelectedDiet((prev) => prev.filter((entry) => normaliseString(entry) !== lowered));
+    if (group === 'cuisine') setSelectedCuisine((prev) => prev.filter((entry) => normaliseString(entry) !== lowered));
+    if (group === 'mood') setSelectedMood((prev) => prev.filter((entry) => normaliseString(entry) !== lowered));
+    if (group === 'price') setSelectedPrice((prev) => prev.filter((entry) => normaliseString(entry) !== lowered));
   };
-  
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }}>
@@ -130,6 +281,27 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
           <Text style={{ fontSize: 24, fontWeight: '800', marginBottom: 8 }}>Discover Food For You</Text>
           <Text style={{ color: '#6b7280', marginBottom: 12 }}>Tailored picks based on your vibe</Text>
 
+          {/* Search bar */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12 }}>
+              <Text style={{ fontSize: 24 }}>☰</Text>
+            </TouchableOpacity>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search restaurants or dishes"
+              placeholderTextColor="#9ca3af"
+              style={{
+                flex: 1,
+                backgroundColor: '#fff',
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#e5e7eb',
+              }}
+            />
+          </View>
 
           {/* Sort tabs */}
           <View style={{ flexDirection: 'row', marginBottom: 8 }}>
@@ -138,12 +310,17 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
               { key: 'rating_desc', label: 'Top Rated' },
               { key: 'price_asc', label: 'Price Asc' },
               { key: 'price_desc', label: 'Price Desc' },
-            ].map(opt => (
-              <TouchableOpacity key={opt.key} onPress={() => setSortBy(opt.key)} style={[styles.sortTab, sortBy === opt.key && styles.sortTabActive]}>
+            ].map((opt) => (
+              <TouchableOpacity
+                key={opt.key}
+                onPress={() => setSortBy(opt.key)}
+                style={[styles.sortTab, sortBy === opt.key && styles.sortTabActive]}
+              >
                 <Text style={[styles.sortTabText, sortBy === opt.key && styles.sortTabTextActive]}>{opt.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
+
           {hasActiveFilters && (
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 4 }}>
               <TouchableOpacity onPress={clearAll}>
@@ -151,69 +328,111 @@ export default function ExploreHomeScreen({ onOpenDrawer, onStartQuestionnaire, 
               </TouchableOpacity>
             </View>
           )}
+
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-            {selectedDiet.map(v => (<FilterChip key={`diet-${v}`} label={`Type: ${v}`} />))}
-            {selectedCuisine.map(v => (<FilterChip key={`cuisine-${v}`} label={`Cuisine: ${v}`} />))}
-            {selectedMood.map(v => (<FilterChip key={`mood-${v}`} label={`Mood: ${v}`} />))}
-            {selectedPrice.map(v => (<FilterChip key={`price-${v}`} label={`Price: ${v}`} />))}
+            {selectedDiet.map((value) => (
+              <FilterChip key={`diet-${value}`} label={`Type: ${value}`} onRemove={() => removeFilter('diet', value)} />
+            ))}
+            {selectedCuisine.map((value) => (
+              <FilterChip key={`cuisine-${value}`} label={`Cuisine: ${value}`} onRemove={() => removeFilter('cuisine', value)} />
+            ))}
+            {selectedMood.map((value) => (
+              <FilterChip key={`mood-${value}`} label={`Mood: ${value}`} onRemove={() => removeFilter('mood', value)} />
+            ))}
+            {selectedPrice.map((value) => (
+              <FilterChip key={`price-${value}`} label={`Price: ${value}`} onRemove={() => removeFilter('price', value)} />
+            ))}
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8 }}>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              disabled={!canRefresh}
+              style={{
+                backgroundColor: '#2563eb',
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 8,
+                marginRight: 12,
+                opacity: canRefresh ? 1 : 0.5,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: 'bold' }}>Refresh</Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={onStartQuestionnaire} style={{ backgroundColor: '#111827', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 }}>
               <Text style={{ color: '#fff', fontWeight: 'bold' }}>Edit Preferences</Text>
             </TouchableOpacity>
           </View>
 
           {/* Restaurants */}
-          <SectionTitle title={`Recommended Restaurants`} right={filteredRestaurants.length ? `${filteredRestaurants.length}` : undefined} />
+          <SectionTitle title="Recommended Restaurants" right={filteredRestaurants.length ? `${filteredRestaurants.length}` : undefined} />
+          
           {filteredRestaurants.length === 0 ? (
             <EmptyState text="No restaurants match your preferences." ctaText="Edit Preferences" onPress={onStartQuestionnaire} />
           ) : (
             <FlatList
               data={filteredRestaurants}
-              keyExtractor={r => r.id}
+              keyExtractor={(restaurant) => restaurant.id}
               horizontal
               showsHorizontalScrollIndicator={false}
-              renderItem={({ item: r }) => (
-                <TouchableOpacity
-                  style={styles.restaurantCard}
-                  onPress={() => navigation.navigate('RestaurantDetail', { restaurant: r })}
-                >
-                  <Text style={styles.restaurantName}>{r.name}</Text>
-                  <Text style={styles.itemTags}>{r.location} • {r.cuisine}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 6 }}>
-                    <Badge text={`${r.rating}★`} color="#fde68a" />
-                    <Badge text={r.averagePrice} />
-                  </View>
-                  <Text style={[styles.itemTags, { marginTop: 6 }]} numberOfLines={2}>Theme: {r.theme}</Text>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item: restaurant }) => {
+                const matchPercent = isPersonalized && probabilityById.has(restaurant.id)
+                  ? Math.round((probabilityById.get(restaurant.id) || 0) * 100)
+                  : null;
+                return (
+                  <TouchableOpacity
+                    style={styles.restaurantCard}
+                    onPress={() => navigation.navigate('RestaurantDetail', { restaurant })}
+                  >
+                    <Text style={styles.restaurantName}>{restaurant.name}</Text>
+                    <Text style={styles.itemTags}>{`${restaurant.location} - ${restaurant.cuisine}`}</Text>
+                    <View style={{ flexDirection: 'row', marginTop: 6 }}>
+                      <Badge text={`${restaurant.rating} rating`} color="#fde68a" />
+                      <Badge text={restaurant.averagePrice} />
+                      {matchPercent !== null ? (
+                        <Badge text={`${matchPercent}% match`} color="#bbf7d0" />
+                      ) : null}
+                    </View>
+                    <Text style={[styles.itemTags, { marginTop: 6 }]} numberOfLines={2}>Theme: {restaurant.theme}</Text>
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
 
           {/* Items */}
-          <SectionTitle title={`Recommended Items`} right={filteredItems.length ? `${filteredItems.length}` : undefined} style={{ marginTop: 12 }} />
+          <SectionTitle title="Recommended Items" right={filteredItems.length ? `${filteredItems.length}` : undefined} style={{ marginTop: 12 }} />
           {filteredItems.length === 0 ? (
             <EmptyState text="No items match your preferences." ctaText="Edit Preferences" onPress={onStartQuestionnaire} />
           ) : (
             <FlatList
               data={filteredItems}
-              keyExtractor={item => item.id}
+              keyExtractor={(item) => item.id}
               horizontal
               showsHorizontalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.itemCard}
-                  onPress={() => navigation.navigate('PreferenceItemDetail', { item })}
-                >
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <Text style={styles.itemTags}>{item.restaurant}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 6 }}>
-                    <Badge text={item.price} />
-                    <Badge text={item.type} color="#e0e7ff" />
-                  </View>
-                  <Text style={[styles.itemTags, { marginTop: 6 }]}>Cuisine: {item.cuisine}</Text>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                const parentRestaurant = restaurantByName.get(item.restaurant);
+                const matchPercent = isPersonalized && parentRestaurant && probabilityById.has(parentRestaurant.id)
+                  ? Math.round((probabilityById.get(parentRestaurant.id) || 0) * 100)
+                  : null;
+                return (
+                  <TouchableOpacity
+                    style={styles.itemCard}
+                    onPress={() => navigation.navigate('PreferenceItemDetail', { item })}
+                  >
+                    <Text style={styles.itemName}>{item.name}</Text>
+                    <Text style={styles.itemTags}>{item.restaurant}</Text>
+                    <View style={{ flexDirection: 'row', marginTop: 6 }}>
+                      <Badge text={item.price} />
+                      <Badge text={item.type} color="#e0e7ff" />
+                      {matchPercent !== null ? (
+                        <Badge text={`${matchPercent}% match`} color="#bbf7d0" />
+                      ) : null}
+                    </View>
+                    <Text style={[styles.itemTags, { marginTop: 6 }]}>Cuisine: {item.cuisine}</Text>
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
         </View>

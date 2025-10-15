@@ -474,3 +474,31 @@ const collectMockUsers = () => {
 };
 
 export const mockUsers = collectMockUsers();
+
+// Sample interaction history for a few mock users to power recommendation tests.
+export const mockUserInteractions = {
+  'user-1': {
+    likedRestaurantIds: ['rest-sakura-ramen'],
+    savedRestaurantIds: ['rest-le-patisserie'],
+    visitedRestaurantIds: ['rest-warung-makcik'],
+    likedItemIds: ['it-spicy-ramen', 'it-iced-matcha', 'it-eclair'],
+  },
+  'user-5': {
+    likedRestaurantIds: ['rest-pizza-house'],
+    savedRestaurantIds: ['rest-western-delight'],
+    visitedRestaurantIds: [],
+    likedItemIds: ['it-carbonara', 'it-margherita', 'it-brownie'],
+  },
+  'user-9': {
+    likedRestaurantIds: ['rest-warung-makcik', 'rest-brew-bean'],
+    savedRestaurantIds: ['rest-tea-time'],
+    visitedRestaurantIds: ['rest-curry-house'],
+    likedItemIds: ['it-nasi-lemak', 'it-macchiato', 'it-bubble-tea'],
+  },
+  'user-13': {
+    likedRestaurantIds: ['rest-le-patisserie'],
+    savedRestaurantIds: ['rest-sakura-ramen'],
+    visitedRestaurantIds: [],
+    likedItemIds: ['it-eclair', 'it-mango-sticky-rice'],
+  },
+};
