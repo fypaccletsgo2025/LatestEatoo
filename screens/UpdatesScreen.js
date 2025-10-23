@@ -1,10 +1,16 @@
 // screens/UpdatesScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Pressable, Keyboard } from 'react-native';
+import {
+  View, Text, StyleSheet, FlatList, TextInput,
+  TouchableOpacity, Pressable, KeyboardAvoidingView, Platform
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getUpdates, addUpdate } from '../state/updatesStore';
 import { availableRestaurants } from '../data/mockData';
+
+const THEME_COLOR = '#FF4D00';
 
 function Post({ post }) {
   const navigation = useNavigation();
@@ -16,45 +22,44 @@ function Post({ post }) {
     let lastIndex = 0;
     let m;
     while ((m = regex.exec(t)) !== null) {
-      if (m.index > lastIndex) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex, m.index)}</Text>);
+      if (m.index > lastIndex)
+        parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex, m.index)}</Text>);
       const name = m[1];
       const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
       const r = (availableRestaurants || []).find(rr => norm(rr.name) === norm(name));
-      if (r) {
-        parts.push(
-          <Text
-            key={`m-${m.index}`}
-            style={styles.mention}
-            onPress={() => navigation.navigate('RestaurantDetail', { restaurant: r })}
-          >
-            @{name}
-          </Text>
-        );
-      } else {
-        parts.push(
-          <Text key={`m-${m.index}`} style={styles.mention}>
-            @{name}
-          </Text>
-        );
-      }
+      parts.push(
+        <Text
+          key={`m-${m.index}`}
+          style={[styles.mention, { color: THEME_COLOR }]}
+          onPress={() => r && navigation.navigate('RestaurantDetail', { restaurant: r })}
+        >
+          @{name}
+        </Text>
+      );
       lastIndex = m.index + m[0].length;
     }
-    if (lastIndex < t.length) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex)}</Text>);
+    if (lastIndex < t.length)
+      parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex)}</Text>);
     return parts;
   };
   return (
-    <View style={styles.card}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.card,
+        { transform: [{ scale: pressed ? 0.98 : 1 }] },
+      ]}
+    >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.author}>{post.author}</Text>
           {post.role === 'owner' && (
-            <Ionicons name="checkmark-circle" size={16} color="#10B981" style={{ marginLeft: 6 }} />
+            <Ionicons name="checkmark-circle" size={16} color={THEME_COLOR} style={{ marginLeft: 6 }} />
           )}
         </View>
         <Text style={styles.timestamp}>{time}</Text>
       </View>
       <Text style={styles.text}>{renderWithMentions(post.text)}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -144,86 +149,159 @@ export default function UpdatesScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Updates</Text>
-
-      {/* Composer */}
-      <View style={styles.composer}>
-        <TextInput
-          placeholder="Your name (optional)"
-          value={author}
-          onChangeText={setAuthor}
-          style={styles.inputSmall}
+    <LinearGradient colors={['#fff5f0', '#ffffff']} style={styles.container}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={80}
+      >
+        {/* Scrollable Feed */}
+        <FlatList
+          data={feed}
+          keyExtractor={(p) => p.id}
+          renderItem={({ item }) => <Post post={item} />}
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 10, paddingBottom: 120 }}
+          style={{ flex: 1 }}
         />
-        <View style={{ position: 'relative', zIndex: 20, marginBottom: visibleSuggestions.length > 0 ? 120 : 0 }}>
-          <TextInput
-            placeholder="Share an update..."
-            value={text}
-            onChangeText={handleChangeText}
-            style={styles.input}
-            multiline
-            onSelectionChange={handleSelectionChange}
-            selection={selection}
-          />
-          {visibleSuggestions.length > 0 && (
-            <View style={styles.suggestBox}>
-              {visibleSuggestions.map(s => (
-                <Pressable key={s.type + s.id} onPress={() => insertMention(s)} style={styles.suggestItem}>
-                  <Ionicons name={s.type === 'owner' ? 'storefront' : 'person'} size={16} color="#6B7280" style={{ marginRight: 8 }} />
-                  <Text style={{ flex: 1 }}>{s.name}</Text>
-                  {s.type === 'owner' && <Text style={styles.ownerPill}>Owner</Text>}
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={submit} style={styles.postBtn}>
-          <Text style={{ color: '#fff', fontWeight: '700' }}>Post</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* Feed */}
-      <FlatList
-        data={feed}
-        keyExtractor={(p) => p.id}
-        renderItem={({ item }) => <Post post={item} />}
-      />
-    </View>
+        {/* Fixed Composer */}
+        <View style={styles.composerContainer}>
+          <View style={styles.composer}>
+            <TextInput
+              placeholder="Your name (optional)"
+              value={author}
+              onChangeText={setAuthor}
+              style={styles.inputSmall}
+            />
+            <View style={{ position: 'relative', zIndex: 20 }}>
+              <TextInput
+                placeholder="Share an update..."
+                value={text}
+                onChangeText={handleChangeText}
+                style={styles.input}
+                multiline
+                onSelectionChange={handleSelectionChange}
+                selection={selection}
+              />
+              {visibleSuggestions.length > 0 && (
+                <View style={styles.suggestBox}>
+                  {visibleSuggestions.map((s) => (
+                    <Pressable
+                      key={s.type + s.id}
+                      onPress={() => insertMention(s)}
+                      style={styles.suggestItem}
+                    >
+                      <Ionicons
+                        name={s.type === 'owner' ? 'storefront' : 'person'}
+                        size={16}
+                        color={THEME_COLOR}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={{ flex: 1 }}>{s.name}</Text>
+                      {s.type === 'owner' && (
+                        <Text style={[styles.ownerPill, { color: THEME_COLOR }]}>Owner</Text>
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+            <TouchableOpacity onPress={submit} style={[styles.postBtn, { backgroundColor: THEME_COLOR }]}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Post</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#d1ccc7', padding: 16 },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 12 },
-  composer: { backgroundColor: '#fff', padding: 12, borderRadius: 16, marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: '#f9fafb', minHeight: 60, textAlignVertical: 'top', marginTop: 8 },
-  inputSmall: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: '#f9fafb', marginBottom: 8 },
-  postBtn: { marginTop: 8, backgroundColor: '#007AFF', paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
-  card: { backgroundColor: '#fff', padding: 12, borderRadius: 12, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  container: { flex: 1 },
+  composerContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  composer: {
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 16,
+    margin: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#f9fafb',
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginTop: 8,
+  },
+  inputSmall: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#f9fafb',
+    marginBottom: 8,
+  },
+  postBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: THEME_COLOR,
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   author: { fontWeight: '800' },
   timestamp: { color: '#9ca3af' },
   text: { marginTop: 6, color: '#111827' },
-  mention: { color: '#007AFF', fontWeight: '700' },
+  mention: { fontWeight: '700', textDecorationLine: 'underline' },
   suggestBox: {
     position: 'absolute',
     left: 0,
     right: 0,
     top: 56,
     backgroundColor: '#fff',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    overflow: 'hidden',
+    borderRadius: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 8,
-    zIndex: 30,
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
   },
   suggestItem: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f3f4f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f3f4f6',
   },
-  ownerPill: { color: '#10B981', fontWeight: '700', fontSize: 12 },
+  ownerPill: { fontWeight: '700', fontSize: 12 },
 });

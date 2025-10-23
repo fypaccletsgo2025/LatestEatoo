@@ -4,16 +4,20 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { availableItems, availableRestaurants } from '../data/mockData';
 
-// Small selectable chip
+// --- Small selectable chip component ---
 function Chip({ label, selected, onPress }) {
   return (
-    <TouchableOpacity onPress={onPress} style={[styles.chip, selected && styles.chipSelected]}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.chip, selected && styles.chipSelected]}>
+      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
-// Combined, scrollable questionnaire (all sections stacked)
+// --- Combined, scrollable questionnaire ---
 export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   const {
@@ -24,10 +28,19 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
     onComplete,
   } = route?.params || {};
 
-  const dietOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.type))), []);
-  const cuisineOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.cuisine))), []);
+  const dietOptions = useMemo(
+    () => Array.from(new Set(availableItems.map(i => i.type))),
+    []
+  );
+  const cuisineOptions = useMemo(
+    () => Array.from(new Set(availableItems.map(i => i.cuisine))),
+    []
+  );
   const moodOptions = useMemo(
-    () => Array.from(new Set((availableRestaurants || []).flatMap(r => r.ambience || []))),
+    () =>
+      Array.from(
+        new Set((availableRestaurants || []).flatMap(r => r.ambience || []))
+      ),
     []
   );
   const priceOptions = ['RM0-RM10', 'RM11-RM20', 'RM21-RM30', 'RM31+'];
@@ -37,7 +50,9 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const [selectedMood, setSelectedMood] = useState(preMood);
   const [selectedPrice, setSelectedPrice] = useState(prePrice);
 
-  const toggle = (setter, list, v) => setter(list.includes(v) ? list.filter(x => x !== v) : [...list, v]);
+  const toggle = (setter, list, value) => {
+    setter(list.includes(value) ? list.filter(x => x !== value) : [...list, value]);
+  };
 
   const handleApply = () => {
     const payload = { selectedDiet, selectedCuisine, selectedMood, selectedPrice };
@@ -58,90 +73,162 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Tailor your recommendations</Text>
-      <ScrollView contentContainerStyle={{ paddingBottom: Math.max(24, insets.bottom + 24 + 56) }}>
-        {/* Diet/Type */}
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 90 }}>
+        {/* --- Type --- */}
         <Text style={styles.subheading}>Type</Text>
         <View style={styles.chipsWrap}>
           {dietOptions.map(opt => (
-            <Chip key={opt} label={opt} selected={selectedDiet.includes(opt)} onPress={() => toggle(setSelectedDiet, selectedDiet, opt)} />
+            <Chip
+              key={opt}
+              label={opt}
+              selected={selectedDiet.includes(opt)}
+              onPress={() => toggle(setSelectedDiet, selectedDiet, opt)}
+            />
           ))}
         </View>
 
-        {/* Cuisine */}
+        {/* --- Cuisine --- */}
         <Text style={styles.subheading}>Cuisines</Text>
         <View style={styles.chipsWrap}>
           {cuisineOptions.map(opt => (
-            <Chip key={opt} label={opt} selected={selectedCuisine.includes(opt)} onPress={() => toggle(setSelectedCuisine, selectedCuisine, opt)} />
+            <Chip
+              key={opt}
+              label={opt}
+              selected={selectedCuisine.includes(opt)}
+              onPress={() => toggle(setSelectedCuisine, selectedCuisine, opt)}
+            />
           ))}
         </View>
 
-        {/* Mood */}
+        {/* --- Mood --- */}
         <Text style={styles.subheading}>Mood</Text>
         <View style={styles.chipsWrap}>
           {moodOptions.map(opt => (
-            <Chip key={opt} label={opt} selected={selectedMood.includes(opt)} onPress={() => toggle(setSelectedMood, selectedMood, opt)} />
+            <Chip
+              key={opt}
+              label={opt}
+              selected={selectedMood.includes(opt)}
+              onPress={() => toggle(setSelectedMood, selectedMood, opt)}
+            />
           ))}
         </View>
 
-        {/* Price */}
+        {/* --- Budget --- */}
         <Text style={styles.subheading}>Budget</Text>
         <View style={styles.chipsWrap}>
           {priceOptions.map(opt => (
-            <Chip key={opt} label={opt} selected={selectedPrice.includes(opt)} onPress={() => toggle(setSelectedPrice, selectedPrice, opt)} />
+            <Chip
+              key={opt}
+              label={opt}
+              selected={selectedPrice.includes(opt)}
+              onPress={() => toggle(setSelectedPrice, selectedPrice, opt)}
+            />
           ))}
         </View>
-
-        <View style={[styles.row, { marginTop: 20 }]}>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={clearAll}>
-            <Text style={styles.secondaryBtnText}>Clear</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleApply}>
-            <Text style={styles.primaryBtnText}>Apply</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
+
+      {/* --- Fixed Bottom Buttons --- */}
+      <View style={[styles.fixedButtonContainer, { paddingBottom: insets.bottom + 4 }]}>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={clearAll}>
+          <Text style={styles.secondaryBtnText}>Clear</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.primaryBtn} onPress={handleApply}>
+          <Text style={styles.primaryBtnText}>Apply</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
 
-// Preserve the step components (legacy) for compatibility; not used in new flow.
-export const PreferenceQuestionnaireStep2 = (props) => <PreferenceQuestionnaire {...props} />;
-export const PreferenceQuestionnaireStep3 = (props) => <PreferenceQuestionnaire {...props} />;
-export const PreferenceQuestionnaireStep4 = (props) => <PreferenceQuestionnaire {...props} />;
+// Legacy step components (kept for compatibility)
+export const PreferenceQuestionnaireStep2 = props => <PreferenceQuestionnaire {...props} />;
+export const PreferenceQuestionnaireStep3 = props => <PreferenceQuestionnaire {...props} />;
+export const PreferenceQuestionnaireStep4 = props => <PreferenceQuestionnaire {...props} />;
 
-// ---- Styles ----
+// --- Styles ---
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  heading: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
-  subheading: { fontSize: 16, fontWeight: '700', marginTop: 8, marginBottom: 6 },
-  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  container: {
+    flex: 1,
+    paddingHorizontal: 16,
+    backgroundColor: '#FF4D00',
+  },
+  heading: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    marginTop: 10,
+    color: '#fff',
+  },
+  subheading: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 10,
+    color: '#fff',
+  },
+  chipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#ccc',
-    marginRight: 8,
-    marginBottom: 8,
+    borderColor: '#fff',
+    backgroundColor: '#ffffffaa',
   },
-  chipSelected: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
-  chipText: { color: '#333' },
-  chipTextSelected: { color: '#fff' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
+  chipSelected: {
+    backgroundColor: '#000',
+    borderColor: '#007AFF',
+  },
+  chipText: {
+    color: '#333',
+    fontWeight: '600',
+  },
+  chipTextSelected: {
+    color: '#fff',
+  },
+  fixedButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderColor: '#ddd',
+  },
   primaryBtn: {
     backgroundColor: '#007AFF',
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignSelf: 'flex-end',
-    marginTop: 16,
+    paddingHorizontal: 50,
+    borderRadius: 10,
+    alignItems: 'center',
   },
-  primaryBtnText: { color: '#fff', fontWeight: 'bold' },
+  primaryBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   secondaryBtn: {
-    backgroundColor: '#eee',
+    backgroundColor: '#f2f2f2',
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingHorizontal: 50,
+    borderRadius: 10,
+    alignItems: 'center',
   },
-  secondaryBtnText: { color: '#333', fontWeight: 'bold' },
+  secondaryBtnText: {
+    color: '#333',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });

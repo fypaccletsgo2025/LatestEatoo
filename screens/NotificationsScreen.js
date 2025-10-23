@@ -1,13 +1,13 @@
 // screens/NotificationsScreen.js
 
 import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { sampleInviteFoodlist } from '../data/mockData';
 import { getFoodlists, updateFoodlists } from '../state/foodlistsStore';
 
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState([
-    { id: 'n1', type: 'invite', title: 'Foodlist invite', body: `Aida wants to share a foodlist with you: '${sampleInviteFoodlist.name}'`, read: false, time: '2m ago', payload: { list: sampleInviteFoodlist, inviter: 'Aida' } },
+    { id: 'n1', type: 'invite', title: 'Foodlist Invite', body: `Aida wants to share a foodlist with you: '${sampleInviteFoodlist.name}'`, read: false, time: '2m ago', payload: { list: sampleInviteFoodlist, inviter: 'Aida' } },
     { id: 'n2', type: 'system', title: 'Welcome to Eatoo', body: 'Thanks for trying the app!', read: true, time: 'Yesterday' },
   ]);
 
@@ -28,29 +28,28 @@ export default function NotificationsScreen() {
       ? [...baseMembers, inviter]
       : baseMembers;
     const newList = { ...list, id: String(Date.now()), members };
-    if (!already) {
-      updateFoodlists((prev) => [...prev, newList]);
-    }
+    if (!already) updateFoodlists(prev => [...prev, newList]);
     setNotifications((prev) => prev.filter((n) => n.id !== note.id));
   };
 
-  const declineInvite = (note) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== note.id));
-  };
+  const declineInvite = (note) => setNotifications(prev => prev.filter(n => n.id !== note.id));
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#d1ccc7' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <Text style={{ fontSize: 22, fontWeight: '800' }}>Notifications</Text>
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <Text style={styles.headerText}>Notifications</Text>
         {notifications.length > 0 && (
-          <TouchableOpacity onPress={clearAll} style={{ backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }}>
-            <Text style={{ color: '#fff', fontWeight: '700' }}>Clear</Text>
+          <TouchableOpacity onPress={clearAll} style={styles.clearBtn}>
+            <Text style={styles.clearText}>Clear</Text>
           </TouchableOpacity>
         )}
       </View>
+
+      {/* No notifications */}
       {notifications.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: '#6b7280' }}>No notifications</Text>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No notifications</Text>
         </View>
       ) : (
         <FlatList
@@ -58,31 +57,19 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             item.type === 'invite' ? (
-              <View
-                style={{
-                  padding: 14,
-                  backgroundColor: '#fff',
-                  borderRadius: 16,
-                  marginBottom: 10,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={styles.inviteCard}>
+                <View style={styles.inviteRow}>
                   <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={{ fontWeight: '700' }}>{item.title}</Text>
-                    <Text style={{ color: '#374151', marginTop: 4 }}>{item.body}</Text>
-                    <Text style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>{item.time}</Text>
+                    <Text style={styles.inviteTitle}>{item.title}</Text>
+                    <Text style={styles.inviteBody}>{item.body}</Text>
+                    <Text style={styles.timeText}>{item.time}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <TouchableOpacity onPress={() => declineInvite(item)} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
-                      <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 18 }}>❌</Text>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity onPress={() => declineInvite(item)} style={styles.declineBtn}>
+                      <Text style={styles.declineIcon}>X</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => acceptInvite(item)} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: '#10b981', fontWeight: '800', fontSize: 18 }}>✅</Text>
+                    <TouchableOpacity onPress={() => acceptInvite(item)} style={styles.acceptBtn}>
+                      <Text style={styles.acceptIcon}>✓</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -90,22 +77,11 @@ export default function NotificationsScreen() {
             ) : (
               <TouchableOpacity
                 onPress={() => markRead(item.id)}
-                style={{
-                  padding: 14,
-                  backgroundColor: '#fff',
-                  borderRadius: 16,
-                  marginBottom: 10,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                  opacity: item.read ? 0.7 : 1,
-                }}
+                style={[styles.systemCard, item.read && { opacity: 0.7 }]}
               >
-                <Text style={{ fontWeight: '700' }}>{item.title}</Text>
-                <Text style={{ color: '#374151', marginTop: 4 }}>{item.body}</Text>
-                <Text style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>{item.time}</Text>
+                <Text style={styles.systemTitle}>{item.title}</Text>
+                <Text style={styles.systemBody}>{item.body}</Text>
+                <Text style={styles.timeText}>{item.time}</Text>
               </TouchableOpacity>
             )
           )}
@@ -114,3 +90,71 @@ export default function NotificationsScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#ffffffff', padding: 16 },
+
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  headerText: { fontSize: 22, fontWeight: '800', color: '#FF4D00' },
+  clearBtn: {
+    backgroundColor: '#FF4D00',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  clearText: { color: '#fff', fontWeight: '700' },
+
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { color: '#6b7280', fontSize: 16 },
+
+  // Card base
+  inviteCard: {
+    backgroundColor: '#FF4D00',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  inviteRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  inviteTitle: { fontWeight: '700', fontSize: 16, color: '#fff' },
+  inviteBody: { color: '#ffffff', marginTop: 6, fontSize: 14 },
+  timeText: { color: '#f9fafb', marginTop: 6, fontSize: 12 },
+  actionRow: { flexDirection: 'row', alignItems: 'center' },
+  declineBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 8,
+  },
+  acceptBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#dcfce7',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  declineIcon: { color: '#ef4444', fontWeight: '800', fontSize: 18 },
+  acceptIcon: { color: '#10b981', fontWeight: '800', fontSize: 18 },
+
+  // System notifications
+  systemCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  systemTitle: { fontWeight: '700', fontSize: 16, color: '#111827' },
+  systemBody: { color: '#374151', marginTop: 4, fontSize: 14 },
+});
