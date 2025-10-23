@@ -14,39 +14,46 @@ import { PreferenceQuestionnaire, PreferenceQuestionnaireStep2, PreferenceQuesti
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
 
-const TabButton = ({ label, icon, active, onPress }) => (
-  <TouchableOpacity
-    onPress={onPress}
-    accessibilityRole="button"
-    accessibilityLabel={label}
-    style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 }}
-  >
-    <View style={{
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 8,
-      paddingHorizontal: 8,
-      borderRadius: 20,
-      backgroundColor: active ? '#111827' : 'transparent',
-    }}>
-      <Ionicons
-        name={icon}
-        size={20}
-        color={active ? '#fff' : '#6b7280'}
-        style={{ marginBottom: 2 }}
-      />
-      <Text
-        numberOfLines={1}
-        ellipsizeMode="clip"
-        adjustsFontSizeToFit
-        minimumFontScale={0.9}
-        style={{ color: active ? '#fff' : '#6b7280', fontWeight: active ? '700' : '600', fontSize: 12, includeFontPadding: false }}
-      >
-        {label}
-      </Text>
-    </View>
-  </TouchableOpacity>
-);
+const TabButton = ({ label, icon, active, onPress }) => {
+  // Only the Home tab should use the orange color when active; others keep white for contrast
+  const useHomeOrange = active && String(label).toLowerCase() === 'home';
+  const iconColor = useHomeOrange ? '#FF4D00' : active ? '#fff' : '#6b7280';
+  const textColor = useHomeOrange ? '#FF4D00' : active ? '#fff' : '#6b7280';
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 }}
+    >
+      <View style={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        borderRadius: 20,
+        backgroundColor: active ? '#111827' : 'transparent',
+      }}>
+        <Ionicons
+          name={icon}
+          size={20}
+          color={iconColor}
+          style={{ marginBottom: 2 }}
+        />
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="clip"
+          adjustsFontSizeToFit
+          minimumFontScale={0.9}
+          style={{ color: textColor, fontWeight: active ? '700' : '600', fontSize: 12, includeFontPadding: false }}
+        >
+          {label}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 export default function ExploreTabsScreen() {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
@@ -59,7 +66,7 @@ export default function ExploreTabsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }}>
       <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}>
+  <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#FF4D00' }}>
           <TouchableOpacity
             onPress={() => { Keyboard.dismiss(); setDrawerOpen(true); }}
             style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e5e7eb', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}
@@ -117,7 +124,7 @@ export default function ExploreTabsScreen() {
           flexDirection: 'row',
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
-          backgroundColor: '#fff',
+          backgroundColor: '#FF4D00',
           shadowColor: '#000',
           shadowOpacity: 0.06,
           shadowRadius: 6,

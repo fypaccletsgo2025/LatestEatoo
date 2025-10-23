@@ -30,48 +30,117 @@ export default function AddRestaurantScreen() {
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
     >
-      <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
-        <Text style={styles.title}>Recommend a Restaurant</Text>
+      <Text style={styles.title}>Recommend a Restaurant</Text>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Restaurant Name *</Text>
-          <TextInput value={name} onChangeText={setName} placeholder="Restaurant name" style={styles.input} />
+      <View style={styles.card}>
+        <Text style={styles.label}>Restaurant Name *</Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="e.g. Sushi Mentai"
+          style={styles.input}
+        />
 
-          <Text style={styles.label}>Location *</Text>
-          <TextInput value={location} onChangeText={setLocation} placeholder="Location" style={styles.input} />
+        <Text style={styles.label}>Location *</Text>
+        <TextInput
+          value={location}
+          onChangeText={setLocation}
+          placeholder="e.g. Kuala Lumpur"
+          style={styles.input}
+        />
 
-          <Text style={styles.label}>Cuisine</Text>
-          <TextInput value={cuisine} onChangeText={setCuisine} placeholder="Cuisine" style={styles.input} />
+        <Text style={styles.label}>Cuisine</Text>
+        <TextInput
+          value={cuisine}
+          onChangeText={setCuisine}
+          placeholder="e.g. Japanese, Thai, Western..."
+          style={styles.input}
+        />
 
-          <Text style={styles.label}>Contact (optional)</Text>
-          <TextInput value={contact} onChangeText={setContact} placeholder="email/phone/IG handle" style={styles.input} />
+        <Text style={styles.label}>Contact (optional)</Text>
+        <TextInput
+          value={contact}
+          onChangeText={setContact}
+          placeholder="e.g. Instagram handle or phone number"
+          style={styles.input}
+        />
 
-          <Text style={styles.label}>Notes (optional)</Text>
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Anything we should know?"
-            style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
-            multiline
-          />
+        <Text style={styles.label}>Notes (optional)</Text>
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Anything we should know?"
+          style={[styles.input, styles.notesInput]}
+          multiline
+        />
 
-          <TouchableOpacity onPress={submit} style={styles.submitBtn}>
-            <Text style={{ color: '#fff', fontWeight: '700' }}>Submit Recommendation</Text>
-          </TouchableOpacity>
-        </View>
-      </Pressable>
+        <TouchableOpacity onPress={submit} style={styles.submitBtn}>
+          <Text style={styles.submitText}>Submit Recommendation</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#d1ccc7', padding: 16 },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 12 },
-  card: {
-    backgroundColor: '#fff', padding: 12, borderRadius: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  container: {
+    flex: 1,
+    backgroundColor: '#FFF5EE',
+    padding: 18,
   },
-  label: { fontWeight: '700', marginTop: 8, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: '#f9fafb' },
-  submitBtn: { marginTop: 12, backgroundColor: '#007AFF', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  title: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#FF4D00',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  label: {
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 10,
+    marginBottom: 6,
+    fontSize: 14,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#f1f1f1',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    fontSize: 14,
+    color: '#222',
+  },
+  notesInput: {
+    minHeight: 90,
+    textAlignVertical: 'top',
+  },
+  submitBtn: {
+    backgroundColor: '#FDAA48',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+    shadowColor: '#FF4D00',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  submitText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 16,
+  },
 });

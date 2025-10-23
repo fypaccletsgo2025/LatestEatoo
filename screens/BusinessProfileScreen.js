@@ -1,6 +1,7 @@
 // screens/BusinessProfileScreen.js
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { getBusinessProfile, submitBusinessProfile } from '../state/businessStore';
 
@@ -35,8 +36,11 @@ export default function BusinessProfileScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Business Profile</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <View style={{ backgroundColor: '#FF4D00', padding: 16, flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>Business Profile</Text>
+      </View>
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
 
       {/* Pending/Approved state */}
       {bp && !showForm ? (
@@ -122,6 +126,8 @@ export default function BusinessProfileScreen() {
         </View>
       )}
     </ScrollView>
+      <View style={{ height: 56, backgroundColor: '#FF4D00' }} />
+    </SafeAreaView>
   );
 }
 

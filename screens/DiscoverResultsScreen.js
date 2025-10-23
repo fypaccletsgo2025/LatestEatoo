@@ -35,9 +35,9 @@ export default function DiscoverResultsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#d1ccc7', padding: 16 },
   title: { fontSize: 22, fontWeight: '800', marginBottom: 12 },
-  card: { backgroundColor: '#fff', padding: 14, borderRadius: 16, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  cardTitle: { fontSize: 16, fontWeight: '700' },
-  cardMeta: { color: '#6b7280', marginTop: 4 },
+  card: { backgroundColor: '#FDAA48', padding: 14, borderRadius: 16, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  cardMeta: { color: '#fff', marginTop: 4 },
   emptyBox: { backgroundColor: '#f3f4f6', padding: 14, borderRadius: 12, alignItems: 'center' },
 });
 
