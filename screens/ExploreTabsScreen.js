@@ -1,5 +1,5 @@
 // screens/ExploreTabsScreen.js 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,45 +15,62 @@ import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireS
 import SearchScreen from './SearchScreen';
 
 const TabButton = ({ label, icon, active, onPress }) => {
-  // Only the Home tab should use the orange color when active; others keep white for contrast
-  const useHomeOrange = active && String(label).toLowerCase() === 'home';
-  const iconColor = useHomeOrange ? '#FF4D00' : active ? '#fff' : '#6b7280';
-  const textColor = useHomeOrange ? '#FF4D00' : active ? '#fff' : '#6b7280';
+  const isActive = active;
+
+  const iconColor = isActive ? '#fff' : '#000';
+  const textColor = isActive ? '#fff' : '#000';
+  const backgroundColor = isActive ? '#000' : 'transparent';
+  const borderStyle = isActive
+    ? { borderColor: '#333', borderWidth: 1 }
+    : { borderWidth: 0 };
 
   return (
     <TouchableOpacity
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 }}
-    >
-      <View style={{
+      style={{
+        flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 8,
-        paddingHorizontal: 8,
-        borderRadius: 20,
-        backgroundColor: active ? '#111827' : 'transparent',
-      }}>
+      }}
+    >
+      <View
+        style={{
+          width: 70,              // 🔹 Fixed consistent width
+          height: 60,             // 🔹 Fixed consistent height
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 20,
+          backgroundColor,
+          ...borderStyle,
+        }}
+      >
         <Ionicons
           name={icon}
-          size={20}
+          size={22}               // consistent icon size
           color={iconColor}
           style={{ marginBottom: 2 }}
         />
         <Text
           numberOfLines={1}
-          ellipsizeMode="clip"
           adjustsFontSizeToFit
           minimumFontScale={0.9}
-          style={{ color: textColor, fontWeight: active ? '700' : '600', fontSize: 12, includeFontPadding: false }}
+          style={{
+            color: textColor,
+            fontWeight: isActive ? '700' : '600',
+            fontSize: 12,
+            includeFontPadding: false,
+          }}
         >
           {label}
         </Text>
       </View>
     </TouchableOpacity>
   );
-}
+};
+
 
 export default function ExploreTabsScreen() {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
@@ -64,7 +81,7 @@ export default function ExploreTabsScreen() {
   const [appliedSelections, setAppliedSelections] = useState(null);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }} edges={['top', 'right', 'bottom', 'left']}>
       <View style={{ flex: 1 }}>
   <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#FF4D00' }}>
           <TouchableOpacity

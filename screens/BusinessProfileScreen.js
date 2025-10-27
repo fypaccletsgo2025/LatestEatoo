@@ -36,7 +36,7 @@ export default function BusinessProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'right', 'bottom', 'left']}>
       <View style={{ backgroundColor: '#FF4D00', padding: 16, flexDirection: 'row', alignItems: 'center' }}>
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>Business Profile</Text>
       </View>

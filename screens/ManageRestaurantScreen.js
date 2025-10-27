@@ -1,7 +1,8 @@
 // screens/ManageRestaurantScreen.js
 
 import React, { useMemo, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Alert, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getUserItemsForRestaurant, addUserItem } from '../state/userMenusStore';
 
@@ -62,8 +63,9 @@ export default function ManageRestaurantScreen({ route }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerCard}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+      <ScrollView style={styles.container}>
+        <View style={styles.headerCard}>
         <Text style={styles.name}>{restaurant.name}</Text>
         <Text style={styles.meta}>{restaurant.location}</Text>
         <View style={{ flexDirection: 'row', marginTop: 8 }}>
@@ -124,36 +126,37 @@ export default function ManageRestaurantScreen({ route }) {
         )}
       </View>
 
-      {showAdd && (
-        <View style={styles.overlay}>
-          <TouchableOpacity style={styles.overlayBg} onPress={() => setShowAdd(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add Menu Item</Text>
+        {showAdd && (
+          <View style={styles.overlay}>
+            <TouchableOpacity style={styles.overlayBg} onPress={() => setShowAdd(false)} />
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Add Menu Item</Text>
 
-            <Text style={styles.modalLabel}>Name</Text>
-            <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="e.g. Mocha Latte" />
+              <Text style={styles.modalLabel}>Name</Text>
+              <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="e.g. Mocha Latte" />
 
-            <Text style={styles.modalLabel}>Type</Text>
-            <TextInput value={type} onChangeText={setType} style={styles.input} placeholder="drink / meal / dessert" />
+              <Text style={styles.modalLabel}>Type</Text>
+              <TextInput value={type} onChangeText={setType} style={styles.input} placeholder="drink / meal / dessert" />
 
-            <Text style={styles.modalLabel}>Price (RM)</Text>
-            <TextInput value={price} onChangeText={setPrice} style={styles.input} keyboardType="number-pad" placeholder="e.g. 15" />
+              <Text style={styles.modalLabel}>Price (RM)</Text>
+              <TextInput value={price} onChangeText={setPrice} style={styles.input} keyboardType="number-pad" placeholder="e.g. 15" />
 
-            <Text style={styles.modalLabel}>Description</Text>
-            <TextInput value={desc} onChangeText={setDesc} style={styles.input} multiline placeholder="Optional" />
+              <Text style={styles.modalLabel}>Description</Text>
+              <TextInput value={desc} onChangeText={setDesc} style={styles.input} multiline placeholder="Optional" />
 
-            <View style={{ flexDirection: 'row', marginTop: 12 }}>
-              <TouchableOpacity onPress={submit} style={[styles.submitBtn, { backgroundColor: '#FF4D00', flex: 1, marginRight: 8 }]}>
-                <Text style={{ color: '#FFF8F3', fontWeight: '700' }}>Add</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowAdd(false)} style={[styles.submitBtn, { backgroundColor: '#FDAA48', flex: 1 }]}>
-                <Text style={{ color: '#FFF8F3', fontWeight: '700' }}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', marginTop: 12 }}>
+                <TouchableOpacity onPress={submit} style={[styles.submitBtn, { backgroundColor: '#FF4D00', flex: 1, marginRight: 8 }]}>
+                  <Text style={{ color: '#FFF8F3', fontWeight: '700' }}>Add</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowAdd(false)} style={[styles.submitBtn, { backgroundColor: '#FDAA48', flex: 1 }]}>
+                  <Text style={{ color: '#FFF8F3', fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      )}
-    </ScrollView>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -166,6 +169,7 @@ function Badge({ text, color = '#FFE3CA' }) {
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#FFF8F3' },
   container: { flex: 1, backgroundColor: '#FFF8F3', padding: 16 },
   headerCard: {
     backgroundColor: '#FF4D00',

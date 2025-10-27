@@ -1,6 +1,18 @@
 // screens/AddRestaurantScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, Pressable, Keyboard } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/Feather';
 
 export default function AddRestaurantScreen() {
   const [name, setName] = React.useState('');
@@ -14,7 +26,6 @@ export default function AddRestaurantScreen() {
       Alert.alert('Missing info', 'Please provide at least a restaurant name and location.');
       return;
     }
-    // Frontend-only: pretend to send to admin moderation queue
     Alert.alert('Thank you!', `Thank you for recommending ${name.trim()}! Our team will review it.`);
     setName('');
     setLocation('');
@@ -24,114 +35,184 @@ export default function AddRestaurantScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ flexGrow: 1 }}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-    >
-      <Text style={styles.title}>Recommend a Restaurant</Text>
+    <View style={{ flex: 1, backgroundColor: '#FFF5ED' }}>
+      <StatusBar backgroundColor="#FF4D00" barStyle="light-content" />
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Restaurant Name *</Text>
+      {/* Everything scrolls together */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.select({ ios: 'padding', android: undefined })}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={{ paddingBottom: 60 }}
+        >
+          {/* Header (scrollable like homepage) */}
+          <View style={styles.headerContainer}>
+            <Text style={styles.headerTitle}>Add a Restaurant</Text>
+            <View style={styles.subtitleRow}>
+              <Text style={styles.headerSubtitle}>
+                Know a great place that we should feature? Let us know!
+              </Text>
+            </View>
+          </View>
+
+          {/* Card Section */}
+          <View style={styles.card}>
+            <Field
+              label="Restaurant Name *"
+              placeholder="e.g. Sushi Mentai"
+              value={name}
+              onChangeText={setName}
+            />
+
+            <Field
+              label="Location *"
+              placeholder="e.g. Kuala Lumpur"
+              value={location}
+              onChangeText={setLocation}
+            />
+
+            <Field
+              label="Cuisine"
+              placeholder="e.g. Japanese, Thai, Western..."
+              value={cuisine}
+              onChangeText={setCuisine}
+            />
+
+            <Field
+              label="Contact (optional)"
+              placeholder="e.g. Instagram handle or phone number"
+              value={contact}
+              onChangeText={setContact}
+            />
+
+            <Field
+              label="Notes (optional)"
+              placeholder="Anything we should know?"
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={4}
+              style={{ minHeight: 100, textAlignVertical: 'top' }}
+            />
+
+            <TouchableOpacity onPress={submit} style={styles.submitBtn}>
+              <Text style={styles.submitText}>Submit Recommendation</Text>
+              <Icon name="send" size={16} color="#fff" />
+            </TouchableOpacity>
+
+            <Text style={styles.helperText}>
+              By submitting, you agree that your suggestion may be edited for clarity before publishing.
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+/* Field Component */
+function Field({ label, style, ...props }) {
+  return (
+    <View style={{ marginBottom: 14 }}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.inputWrapper}>
         <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Sushi Mentai"
-          style={styles.input}
+          placeholderTextColor="#9a9a9a"
+          style={[styles.input, style]}
+          {...props}
         />
-
-        <Text style={styles.label}>Location *</Text>
-        <TextInput
-          value={location}
-          onChangeText={setLocation}
-          placeholder="e.g. Kuala Lumpur"
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Cuisine</Text>
-        <TextInput
-          value={cuisine}
-          onChangeText={setCuisine}
-          placeholder="e.g. Japanese, Thai, Western..."
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Contact (optional)</Text>
-        <TextInput
-          value={contact}
-          onChangeText={setContact}
-          placeholder="e.g. Instagram handle or phone number"
-          style={styles.input}
-        />
-
-        <Text style={styles.label}>Notes (optional)</Text>
-        <TextInput
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Anything we should know?"
-          style={[styles.input, styles.notesInput]}
-          multiline
-        />
-
-        <TouchableOpacity onPress={submit} style={styles.submitBtn}>
-          <Text style={styles.submitText}>Submit Recommendation</Text>
-        </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF5EE',
-    padding: 18,
+  /* Header */
+  headerContainer: {
+    padding: 22,
+    backgroundColor: '#FF4D00',
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    elevation: 5,
+    marginBottom: 16,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: '#FF4D00',
+  headerTitle: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 6,
   },
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerSubtitle: {
+    color: '#fff',
+    opacity: 0.95,
+    fontSize: 15,
+    flexShrink: 1,
+    paddingRight: 10,
+  },
+  editIconHeader: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+
+  /* Card */
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
+    borderRadius: 18,
+    padding: 16,
+    marginHorizontal: 16,
     elevation: 3,
+    borderColor: '#FFE8D2',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
+
+  /* Fields */
   label: {
     fontWeight: '700',
-    color: '#333',
-    marginTop: 10,
+    color: '#3C1E12',
     marginBottom: 6,
     fontSize: 14,
   },
-  input: {
+  inputWrapper: {
     borderWidth: 1,
-    borderColor: '#f1f1f1',
+    borderColor: '#FFE8D2',
     borderRadius: 14,
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    fontSize: 14,
-    color: '#222',
+    backgroundColor: '#fff',
   },
-  notesInput: {
-    minHeight: 90,
-    textAlignVertical: 'top',
+  input: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#333',
   },
+
+  /* Submit */
   submitBtn: {
-    backgroundColor: '#FDAA48',
+    backgroundColor: '#FF4D00',
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 18,
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 8,
     shadowColor: '#FF4D00',
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -142,5 +223,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '800',
     fontSize: 16,
+  },
+
+  /* Helper footer */
+  helperText: {
+    marginTop: 12,
+    fontSize: 12,
+    color: '#6B4A3F',
+    textAlign: 'center',
+    marginBottom: 8,
   },
 });

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { sampleInviteFoodlist } from '../data/mockData';
 import { getFoodlists, updateFoodlists } from '../state/foodlistsStore';
 
@@ -35,63 +36,66 @@ export default function NotificationsScreen() {
   const declineInvite = (note) => setNotifications(prev => prev.filter(n => n.id !== note.id));
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <Text style={styles.headerText}>Notifications</Text>
-        {notifications.length > 0 && (
-          <TouchableOpacity onPress={clearAll} style={styles.clearBtn}>
-            <Text style={styles.clearText}>Clear</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* No notifications */}
-      {notifications.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No notifications</Text>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <Text style={styles.headerText}>Notifications</Text>
+          {notifications.length > 0 && (
+            <TouchableOpacity onPress={clearAll} style={styles.clearBtn}>
+              <Text style={styles.clearText}>Clear</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            item.type === 'invite' ? (
-              <View style={styles.inviteCard}>
-                <View style={styles.inviteRow}>
-                  <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={styles.inviteTitle}>{item.title}</Text>
-                    <Text style={styles.inviteBody}>{item.body}</Text>
-                    <Text style={styles.timeText}>{item.time}</Text>
-                  </View>
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity onPress={() => declineInvite(item)} style={styles.declineBtn}>
-                      <Text style={styles.declineIcon}>X</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => acceptInvite(item)} style={styles.acceptBtn}>
-                      <Text style={styles.acceptIcon}>✓</Text>
-                    </TouchableOpacity>
+
+        {/* No notifications */}
+        {notifications.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No notifications</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={notifications}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) =>
+              item.type === 'invite' ? (
+                <View style={styles.inviteCard}>
+                  <View style={styles.inviteRow}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={styles.inviteTitle}>{item.title}</Text>
+                      <Text style={styles.inviteBody}>{item.body}</Text>
+                      <Text style={styles.timeText}>{item.time}</Text>
+                    </View>
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity onPress={() => declineInvite(item)} style={styles.declineBtn}>
+                        <Text style={styles.declineIcon}>X</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => acceptInvite(item)} style={styles.acceptBtn}>
+                        <Text style={styles.acceptIcon}>✓</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ) : (
-              <TouchableOpacity
-                onPress={() => markRead(item.id)}
-                style={[styles.systemCard, item.read && { opacity: 0.7 }]}
-              >
-                <Text style={styles.systemTitle}>{item.title}</Text>
-                <Text style={styles.systemBody}>{item.body}</Text>
-                <Text style={styles.timeText}>{item.time}</Text>
-              </TouchableOpacity>
-            )
-          )}
-        />
-      )}
-    </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => markRead(item.id)}
+                  style={[styles.systemCard, item.read && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.systemTitle}>{item.title}</Text>
+                  <Text style={styles.systemBody}>{item.body}</Text>
+                  <Text style={styles.timeText}>{item.time}</Text>
+                </TouchableOpacity>
+              )
+            }
+          />
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#ffffffff' },
   container: { flex: 1, backgroundColor: '#ffffffff', padding: 16 },
 
   headerRow: {

@@ -5,10 +5,24 @@ import { availableItems, availableRestaurants } from '../data/mockData';
 
 const presetTags = ['spicy', 'sweet', 'salty', 'aromatic', 'hearty', 'refreshing', 'creamy'];
 
-export default function SearchScreen({ navigation }) {
-  const [query, setQuery] = React.useState('');
+export default function SearchScreen({ navigation, initialQuery = '', onQueryChange }) {
+  const [query, setQuery] = React.useState(initialQuery || '');
   const [tag, setTag] = React.useState(null);
   const [imageError, setImageError] = React.useState({});
+
+  React.useEffect(() => {
+    if (typeof initialQuery === 'string') {
+      setQuery(prev => (prev === initialQuery ? prev : initialQuery));
+    }
+  }, [initialQuery]);
+
+  const handleChangeQuery = React.useCallback(
+    (text) => {
+      setQuery(text);
+      onQueryChange?.(text);
+    },
+    [onQueryChange]
+  );
 
   const discoverTags = React.useMemo(() => {
     // Show presets that exist in data
@@ -42,7 +56,8 @@ export default function SearchScreen({ navigation }) {
   }, [query]);
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+    <View style={styles.safeArea}>
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Search</Text>
 
       {/* Query */}
@@ -51,8 +66,9 @@ export default function SearchScreen({ navigation }) {
         <TextInput
           placeholder="Search restaurants or dishes"
           value={query}
-          onChangeText={setQuery}
+          onChangeText={handleChangeQuery}
           style={styles.searchInput}
+          placeholderTextColor="#6B4A3F"
         />
       </View>
 
@@ -74,7 +90,7 @@ export default function SearchScreen({ navigation }) {
             ))}
           </View>
         ) : (
-          <View style={styles.emptyBox}><Text style={{ color: '#6b7280' }}>No matches</Text></View>
+          <View style={styles.emptyBox}><Text style={styles.emptyText}>No matches</Text></View>
         )
       )}
 
@@ -100,8 +116,8 @@ export default function SearchScreen({ navigation }) {
           </TouchableOpacity>
         ))}
       </View>
-
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -116,30 +132,110 @@ function TagChip({ label, active, onPress }) {
 function Empty({ text }) {
   return (
     <View style={styles.emptyBox}>
-      <Text style={{ color: '#6b7280' }}>{text}</Text>
+      <Text style={styles.emptyText}>{text}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#d1ccc7', padding: 16 },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 12 },
-  searchRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e5e7eb', borderRadius: 12, paddingHorizontal: 12, height: 40, marginBottom: 8 },
-  searchIcon: { color: '#9CA3AF', marginRight: 8 },
-  searchInput: { flex: 1 },
-  sectionTitle: { fontWeight: '800', marginTop: 8, marginBottom: 8 },
-  card: { backgroundColor: '#fff', padding: 14, borderRadius: 16, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  cardTitle: { fontSize: 16, fontWeight: '700' },
-  cardMeta: { color: '#6b7280', marginTop: 4 },
-  emptyBox: { backgroundColor: '#f3f4f6', padding: 14, borderRadius: 12, alignItems: 'center' },
-  dropdown: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 6, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  dropdownItem: { paddingVertical: 10, paddingHorizontal: 12 },
-  dropdownText: { color: '#111827' },
+  safeArea: { flex: 1, backgroundColor: '#FFF5ED' },
+  container: { flex: 1, backgroundColor: '#FFF5ED', padding: 16 },
+  title: { fontSize: 22, fontWeight: '800', marginBottom: 12, color: '#FF4D00' },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFE8D2',
+    paddingHorizontal: 12,
+    height: 40,
+    marginBottom: 8,
+  },
+  searchIcon: { color: '#6B4A3F', marginRight: 8 },
+  searchInput: { flex: 1, color: '#3C1E12' },
+  sectionTitle: { fontWeight: '800', marginTop: 8, marginBottom: 8, fontSize: 20, color: '#FF4D00' },
+  card: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#FFE8D2',
+    shadowColor: '#FF4D00',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#3C1E12' },
+  cardMeta: { color: '#6B4A3F', marginTop: 4 },
+  emptyBox: {
+    backgroundColor: '#FFE8D2',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  emptyText: { color: '#6B4A3F', fontWeight: '600' },
+  dropdown: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#FFE8D2',
+    shadowColor: '#FF4D00',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#FFE8D2',
+  },
+  dropdownText: { color: '#3C1E12' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  tile: { width: '48%', aspectRatio: 1.2, borderRadius: 16, overflow: 'hidden', marginBottom: 12, backgroundColor: '#e5e7eb' },
+  tile: {
+    width: '48%',
+    aspectRatio: 1.2,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    backgroundColor: '#FFE8D2',
+  },
   tileImage: { width: '100%', height: '100%' },
-  tileOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  tileText: { color: '#fff', fontWeight: '800', fontSize: 18, textShadowColor: '#000', textShadowRadius: 4, textShadowOffset: { width: 0, height: 1 } },
+  tileOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(60, 30, 18, 0.18)',
+  },
+  tileText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 18,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  tagChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#FFE8D2',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  tagChipActive: { backgroundColor: '#FF4D00' },
+  tagChipText: { fontWeight: '600', color: '#3C1E12' },
+  tagChipTextActive: { color: '#FFFFFF' },
 });
 
 function sampleImageForTag(tag) {

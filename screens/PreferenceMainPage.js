@@ -292,7 +292,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
           setShowPQ(false);
         }}
       />
-    </View>
+      </View>
   );
 }
 

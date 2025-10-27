@@ -24,6 +24,8 @@ import {
 import PreferenceMainPage from '../screens/PreferenceMainPage';
 import PreferenceItemDetailScreen from '../screens/PreferenceItemDetailScreen';
 import RestaurantDetailScreen from '../screens/RestaurantDetailScreen';
+import AllRestaurantsScreen from '../screens/AllRestaurantsScreen';
+import AllDishesScreen from '../screens/AllDishesScreen';
 
 // Other screens
 import BusinessProfileScreen from '../screens/BusinessProfileScreen';
@@ -62,6 +64,8 @@ export default function AppNavigator() {
         <Stack.Screen name="PreferenceMainPage" component={PreferenceMainPage} />
         <Stack.Screen name="PreferenceItemDetail" component={PreferenceItemDetailScreen} />
         <Stack.Screen name="RestaurantDetail" component={RestaurantDetailScreen} />
+        <Stack.Screen name="AllRestaurants" component={AllRestaurantsScreen} />
+        <Stack.Screen name="AllDishes" component={AllDishesScreen} />
 
         {/* 🔸 Settings & Misc Screens */}
         <Stack.Screen name="BusinessProfile" component={BusinessProfileScreen} />

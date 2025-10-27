@@ -1,6 +1,7 @@
 // screens/RestaurantDetailScreen.js
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { availableItems } from '../data/mockData';
 import { getUserItemsForRestaurant, addUserItem } from '../state/userMenusStore';
@@ -33,7 +34,8 @@ export default function RestaurantDetailScreen({ route, navigation }) {
   const [newDesc, setNewDesc] = useState('');
 
   return (
-    <ScrollView style={styles.container}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+      <ScrollView style={styles.container}>
       {/* Header Card */}
       <View style={styles.headerCard}>
         {/* Save icon */}
@@ -184,11 +186,13 @@ export default function RestaurantDetailScreen({ route, navigation }) {
           </View>
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#d1ccc7' },
   container: { flex: 1, padding: 16, backgroundColor: '#d1ccc7' },
   headerCard: {
     backgroundColor: '#fff',
