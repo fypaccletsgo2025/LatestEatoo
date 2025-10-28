@@ -10,6 +10,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import BackButton from '../components/BackButton';
+
+const BRAND = {
+  primary: '#FF4D00',
+  accent: '#FDAA48',
+  bg: '#FFF5ED',
+  card: '#FFFFFF',
+  line: '#FFE3C6',
+  ink: '#1F2937',
+  inkMuted: '#6B7280',
+};
 
 export default function PrivacyScreen() {
   const navigation = useNavigation();
@@ -27,161 +38,128 @@ export default function PrivacyScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', onPress: () => console.log('Account deleted!') },
-      ]
-    );
+    Alert.alert('Delete Account', 'Are you sure you want to delete your account?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => console.log('Account deleted!') },
+    ]);
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'right', 'bottom', 'left']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.headerTopRow}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Text style={styles.backButtonText}>←</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Privacy Center</Text>
-          </View>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: BRAND.bg }}
+      edges={['top', 'right', 'bottom', 'left']}
+    >
+      <View style={styles.header}>
+        <BackButton onPress={() => navigation.goBack()} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Privacy Center</Text>
           <Text style={styles.headerSubtitle}>
-            Manage your privacy, data, and permissions
+            Manage your privacy, data, and permissions.
           </Text>
         </View>
+      </View>
 
-        {/* Settings Section */}
-        <View style={styles.section}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>Your Privacy Options</Text>
-
-          <TouchableOpacity style={styles.button} onPress={handlePolicy}>
-            <Text style={styles.buttonText}>View Privacy Policy</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.button} onPress={handleTerms}>
-            <Text style={styles.buttonText}>View Terms of Service</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.button} onPress={handleDataSettings}>
-            <Text style={styles.buttonText}>Manage Data & Permissions</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionBody}>
+            Control how we use your data across recommendations, updates, and invites.
+          </Text>
+          <ActionButton label="View Privacy Policy" onPress={handlePolicy} />
+          <ActionButton label="View Terms of Service" onPress={handleTerms} />
+          <ActionButton label="Manage Data & Permissions" onPress={handleDataSettings} />
         </View>
 
-        {/* Divider */}
-        <View style={styles.divider} />
-
-        {/* Account Section */}
-        <View style={styles.section}>
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>Account Control</Text>
-
-          <TouchableOpacity
-            style={[styles.button, styles.deleteButton]}
-            onPress={handleDeleteAccount}
-          >
-            <Text style={styles.deleteText}>Delete My Account</Text>
+          <Text style={styles.sectionBody}>
+            Export your data or delete your account at any time. We keep your details secure.
+          </Text>
+          <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteAccount}>
+            <Text style={styles.dangerText}>Delete My Account</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Footer */}
-        <Text style={styles.footerText}>
-          We respect your privacy. Your data is secure and never shared without
-          your consent.
-        </Text>
+        <View style={styles.infoBox}>
+          <Text style={styles.infoText}>
+            We respect your privacy. Your data stays with us and is never shared without your consent.
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ------------------ Styles ------------------
+function ActionButton({ label, onPress }) {
+  return (
+    <TouchableOpacity style={styles.actionButton} onPress={onPress}>
+      <Text style={styles.actionText}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
   header: {
-    backgroundColor: '#FF4D00',
-    paddingTop: 20,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-  },
-  headerTopRow: {
+    backgroundColor: BRAND.primary,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  backButton: {
-    marginRight: 10,
-    backgroundColor: '#FDAA48',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  backButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  headerTitle: {
-    fontSize: 24,
-    color: '#FFF',
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: '#FFF9',
-    fontSize: 15,
-  },
-  section: {
-    marginTop: 24,
     paddingHorizontal: 20,
+    paddingTop: 26,
+    paddingBottom: 22,
+    gap: 14,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FF4D00',
-    marginBottom: 12,
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  headerSubtitle: { color: '#FFEBD8', marginTop: 6, fontSize: 14, lineHeight: 20 },
+  container: {
+    padding: 20,
+    gap: 18,
+    backgroundColor: BRAND.bg,
   },
-  button: {
-    backgroundColor: '#FDAA48',
+  card: {
+    backgroundColor: BRAND.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    gap: 14,
+  },
+  sectionTitle: { color: BRAND.ink, fontSize: 16, fontWeight: '800' },
+  sectionBody: { color: BRAND.inkMuted, lineHeight: 20, fontSize: 14 },
+  actionButton: {
+    backgroundColor: BRAND.primary,
     paddingVertical: 14,
-    borderRadius: 14,
-    marginBottom: 12,
+    borderRadius: 12,
     alignItems: 'center',
-    elevation: 3,
   },
-  buttonText: {
-    color: '#FFF',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  deleteButton: {
-    backgroundColor: '#FFF',
+  actionText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  dangerButton: {
+    borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#FF4D00',
+    borderColor: '#FF8571',
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#FFF5F4',
   },
-  deleteText: {
-    color: '#FF4D00',
-    fontWeight: '700',
-    fontSize: 16,
+  dangerText: { color: '#D73717', fontWeight: '700', fontSize: 15 },
+  infoBox: {
+    padding: 16,
+    backgroundColor: '#FFEFE2',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FFC9A3',
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#FFE6CC',
-    marginVertical: 24,
-    marginHorizontal: 20,
-  },
-  footerText: {
+  infoText: {
     textAlign: 'center',
-    color: '#777',
+    color: BRAND.inkMuted,
     fontSize: 13,
-    paddingHorizontal: 20,
-    marginVertical: 30,
+    lineHeight: 20,
   },
 });

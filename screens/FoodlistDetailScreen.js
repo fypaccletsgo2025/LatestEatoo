@@ -13,6 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { availableItems, mockUsers } from '../data/mockData';
+import BackButton from '../components/BackButton';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -180,14 +181,7 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     return (
       <View style={styles.headerWrap}>
         <View style={styles.headerBar}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.iconBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Ionicons name="arrow-back" size={20} color="#fff" />
-          </TouchableOpacity>
+          <BackButton onPress={() => navigation.goBack()} />
 
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={styles.headerTitle}>Foodlist</Text>
@@ -503,16 +497,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: BRAND.overlay,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 14,

@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import BackButton from '../components/BackButton';
 import { availableItems } from '../data/mockData';
 
 const parsePriceToNumber = (price) => {
@@ -117,14 +117,7 @@ export default function DiscoverResultsScreen({ route, navigation }) {
             <View style={styles.listHeader}>
               {/* Back icon row */}
               <View style={styles.headerBar}>
-                <TouchableOpacity
-                  onPress={() => navigation.goBack()}
-                  style={styles.backBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Go back"
-                >
-                  <Icon name="chevron-left" size={22} color="#3C1E12" />
-                </TouchableOpacity>
+                <BackButton onPress={() => navigation.goBack()} />
               </View>
 
               <View style={styles.heroCard}>
@@ -187,14 +180,8 @@ const styles = StyleSheet.create({
 
   // Back icon area
   headerBar: {
-    height: 36,
-    justifyContent: 'center',
     marginBottom: 8,
-  },
-  backBtn: {
-    alignSelf: 'flex-start',
-    padding: 6,
-    borderRadius: 10,
+    alignItems: 'flex-start',
   },
 
   heroCard: {

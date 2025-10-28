@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import BackButton from '../components/BackButton';
 import { isItemLiked, likeItem, unlikeItem } from '../state/libraryStore';
 
 const BRAND = {
@@ -23,7 +24,6 @@ const BRAND = {
   inkMuted: '#6B4A3F',
   metaBg: '#FFE8D2',
   accent: '#FFD4AF',
-  overlay: 'rgba(255,255,255,0.2)',
 };
 
 export default function FoodItemDetailScreen({ route }) {
@@ -52,19 +52,12 @@ export default function FoodItemDetailScreen({ route }) {
         {/* Orange header with soft lower border */}
         <View style={styles.headerWrap}>
           <View style={styles.headerBar}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.iconBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Ionicons name="arrow-back" size={20} color="#fff" />
-            </TouchableOpacity>
+            <BackButton onPress={() => navigation.goBack()} />
 
             <View style={{ flex: 1, alignItems: 'center' }} />
 
             {/* Removed heart from here */}
-            <View style={{ width: 36, height: 36 }} />
+            <View style={{ width: 40, height: 40 }} />
           </View>
 
           {/* White hero card under orange header */}
@@ -183,16 +176,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: BRAND.overlay,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 
   /* White hero card under header */

@@ -1,4 +1,4 @@
-// screens/ExploreTabsScreen.js 
+// screens/ExploreTabsScreen.js
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,9 +8,6 @@ import ExploreHomeScreen from './ExploreHomeScreen';
 import AddRestaurantScreen from './AddRestaurantScreen';
 import UpdatesScreen from './UpdatesScreen';
 import LibraryScreen from './LibraryScreen';
-import PreferenceMainPage from './PreferenceMainPage';
-import FoodlistMainScreen from './FoodlistMainScreen';
-import { PreferenceQuestionnaire, PreferenceQuestionnaireStep2, PreferenceQuestionnaireStep3, PreferenceQuestionnaireStep4 } from './PreferenceQuestionnaire';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
 
@@ -38,8 +35,8 @@ const TabButton = ({ label, icon, active, onPress }) => {
     >
       <View
         style={{
-          width: 70,              // 🔹 Fixed consistent width
-          height: 60,             // 🔹 Fixed consistent height
+          width: 70,
+          height: 60,
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: 20,
@@ -47,12 +44,7 @@ const TabButton = ({ label, icon, active, onPress }) => {
           ...borderStyle,
         }}
       >
-        <Ionicons
-          name={icon}
-          size={22}               // consistent icon size
-          color={iconColor}
-          style={{ marginBottom: 2 }}
-        />
+        <Ionicons name={icon} size={22} color={iconColor} style={{ marginBottom: 2 }} />
         <Text
           numberOfLines={1}
           adjustsFontSizeToFit
@@ -71,33 +63,74 @@ const TabButton = ({ label, icon, active, onPress }) => {
   );
 };
 
-
-export default function ExploreTabsScreen() {
+export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPQ, setShowPQ] = useState(false);
-  // Right-side questionnaire state
   const [appliedSelections, setAppliedSelections] = useState(null);
 
+  const displayName = (currentUser?.fullName || currentUser?.username || '').trim();
+  const profileInitial = (
+    displayName[0] ||
+    currentUser?.username?.[0] ||
+    '?'
+  ).toUpperCase();
+  const usernameTag = currentUser?.username ? `@${currentUser.username}` : null;
+  const activeTabLabel =
+    tab === 'home'
+      ? 'Home'
+      : tab === 'search'
+      ? 'Search'
+      : tab === 'add'
+      ? 'Add'
+      : tab === 'review'
+      ? 'Updates'
+      : 'Library';
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#d1ccc7' }} edges={['top', 'right', 'bottom', 'left']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: '#FFF5ED' }}
+      edges={['top', 'right', 'bottom', 'left']}
+    >
       <View style={{ flex: 1 }}>
-  <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#FF4D00' }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            padding: 16,
+            backgroundColor: '#FF4D00',
+          }}
+        >
           <TouchableOpacity
-            onPress={() => { Keyboard.dismiss(); setDrawerOpen(true); }}
-            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e5e7eb', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => {
+              Keyboard.dismiss();
+              setDrawerOpen(true);
+            }}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: '#FFEFE2',
+              marginRight: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
           >
-            <Text style={{ color: '#6B7280' }}>☰</Text>
+            <Ionicons name="menu" size={20} color="#FF4D00" />
           </TouchableOpacity>
-          <Text style={{ fontSize: 18, fontWeight: '700' }}>
-            {tab === 'home' ? 'Home' : tab === 'search' ? 'Search' : tab === 'add' ? 'Add' : tab === 'review' ? 'Updates' : 'Library'}
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>
+            {activeTabLabel}
           </Text>
         </View>
         {tab === 'home' && (
           <ExploreHomeScreen
             onOpenDrawer={() => setDrawerOpen(true)}
-            onStartQuestionnaire={() => { setShowPQ(true); }}
+            onStartQuestionnaire={() => {
+              setShowPQ(true);
+            }}
             externalSelections={appliedSelections}
           />
         )}
@@ -106,11 +139,17 @@ export default function ExploreTabsScreen() {
         {tab === 'review' && <UpdatesScreen />}
         {tab === 'library' && <LibraryScreen />}
       </View>
-      {/* Simple Drawer */}
       {drawerOpen && (
         <>
           <TouchableOpacity
-            style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.2)' }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: 'rgba(0,0,0,0.2)',
+            }}
             onPress={() => setDrawerOpen(false)}
           />
           <View
@@ -124,12 +163,101 @@ export default function ExploreTabsScreen() {
               paddingTop: 24,
             }}
           >
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 16, paddingHorizontal: 16 }}>Menu</Text>
-            {/* Only non-tab destinations in the drawer */}
-            <DrawerItem label="Business Profile" onPress={() => { setDrawerOpen(false); navigation.navigate('BusinessProfile'); }} />
-            <DrawerItem label="Password & Security" onPress={() => { setDrawerOpen(false); navigation.navigate('PasswordSecurity'); }} />
-            <DrawerItem label="Privacy" onPress={() => { setDrawerOpen(false); navigation.navigate('Privacy'); }} />
-            <DrawerItem label="Notifications" onPress={() => { setDrawerOpen(false); navigation.navigate('Notifications'); }} />
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: '700',
+                marginBottom: 12,
+                paddingHorizontal: 16,
+                color: '#111827',
+              }}
+            >
+              Menu
+            </Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                backgroundColor: '#FFF7F0',
+                borderTopWidth: 1,
+                borderBottomWidth: 1,
+                borderColor: '#FFE3C6',
+                gap: 12,
+              }}
+            >
+              <View
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: '#FF4D00',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                  {profileInitial}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700', color: '#111827', fontSize: 15 }}>
+                  {displayName || 'Guest'}
+                </Text>
+                {usernameTag ? (
+                  <Text style={{ color: '#6B7280', fontSize: 12 }}>{usernameTag}</Text>
+                ) : null}
+              </View>
+            </View>
+            <DrawerItem
+              label="Business Profile"
+              onPress={() => {
+                setDrawerOpen(false);
+                navigation.navigate('BusinessProfile');
+              }}
+            />
+            <DrawerItem
+              label="Password & Security"
+              onPress={() => {
+                setDrawerOpen(false);
+                navigation.navigate('PasswordSecurity');
+              }}
+            />
+            <DrawerItem
+              label="Privacy"
+              onPress={() => {
+                setDrawerOpen(false);
+                navigation.navigate('Privacy');
+              }}
+            />
+            <DrawerItem
+              label="Notifications"
+              onPress={() => {
+                setDrawerOpen(false);
+                navigation.navigate('Notifications');
+              }}
+            />
+            {typeof onLogout === 'function' && (
+              <>
+                <View
+                  style={{
+                    height: 1,
+                    backgroundColor: '#F3F4F6',
+                    marginHorizontal: 16,
+                    marginTop: 8,
+                  }}
+                />
+                <DrawerItem
+                  label="Sign out"
+                  onPress={() => {
+                    setDrawerOpen(false);
+                    onLogout?.();
+                  }}
+                  danger
+                />
+              </>
+            )}
           </View>
         </>
       )}
@@ -149,27 +277,74 @@ export default function ExploreTabsScreen() {
           elevation: 4,
         }}
       >
-        <TabButton label="Home" icon={tab === 'home' ? 'home' : 'home-outline'} active={tab === 'home'} onPress={() => setTab('home')} />
-        <TabButton label="Search" icon={tab === 'search' ? 'search' : 'search-outline'} active={tab === 'search'} onPress={() => setTab('search')} />
-        <TabButton label="Add" icon={tab === 'add' ? 'add-circle' : 'add-circle-outline'} active={tab === 'add'} onPress={() => setTab('add')} />
-        <TabButton label="Updates" icon={tab === 'review' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} active={tab === 'review'} onPress={() => setTab('review')} />
-        <TabButton label="Library" icon={tab === 'library' ? 'book' : 'book-outline'} active={tab === 'library'} onPress={() => setTab('library')} />
+        <TabButton
+          label="Home"
+          icon={tab === 'home' ? 'home' : 'home-outline'}
+          active={tab === 'home'}
+          onPress={() => setTab('home')}
+        />
+        <TabButton
+          label="Search"
+          icon={tab === 'search' ? 'search' : 'search-outline'}
+          active={tab === 'search'}
+          onPress={() => setTab('search')}
+        />
+        <TabButton
+          label="Add"
+          icon={tab === 'add' ? 'add-circle' : 'add-circle-outline'}
+          active={tab === 'add'}
+          onPress={() => setTab('add')}
+        />
+        <TabButton
+          label="Updates"
+          icon={
+            tab === 'review' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'
+          }
+          active={tab === 'review'}
+          onPress={() => setTab('review')}
+        />
+        <TabButton
+          label="Library"
+          icon={tab === 'library' ? 'book' : 'book-outline'}
+          active={tab === 'library'}
+          onPress={() => setTab('library')}
+        />
       </View>
-      {/* Right-side filter sheet (Shopee-like) - render last so it's on top */}
       <PreferenceQuestionnaireSheet
         open={showPQ}
         onClose={() => setShowPQ(false)}
-        initialSelections={appliedSelections || { selectedDiet: [], selectedCuisine: [], selectedMood: [], selectedPrice: [] }}
-        onApply={(sel) => { setAppliedSelections(sel); setShowPQ(false); }}
+        initialSelections={
+          appliedSelections || {
+            selectedDiet: [],
+            selectedCuisine: [],
+            selectedMood: [],
+            selectedPrice: [],
+          }
+        }
+        onApply={(selections) => {
+          setAppliedSelections(selections);
+          setShowPQ(false);
+        }}
       />
     </SafeAreaView>
   );
 }
 
-function DrawerItem({ label, onPress }) {
+function DrawerItem({ label, onPress, danger }) {
   return (
-    <TouchableOpacity onPress={onPress} style={{ paddingVertical: 12, paddingHorizontal: 16 }}>
-      <Text style={{ fontSize: 16 }}>{label}</Text>
+    <TouchableOpacity
+      onPress={onPress}
+      style={{ paddingVertical: 12, paddingHorizontal: 16 }}
+    >
+      <Text
+        style={{
+          fontSize: 16,
+          color: danger ? '#FF4D00' : '#111827',
+          fontWeight: danger ? '700' : '500',
+        }}
+      >
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }

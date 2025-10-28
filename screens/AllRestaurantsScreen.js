@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
+import BackButton from '../components/BackButton';
 import { availableRestaurants } from '../data/mockData';
 
 export default function AllRestaurantsScreen() {
@@ -27,9 +28,7 @@ export default function AllRestaurantsScreen() {
 
       <View style={styles.headerContainer}>
         <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Icon name="arrow-left" size={20} color="#fff" />
-          </TouchableOpacity>
+          <BackButton onPress={() => navigation.goBack()} />
           <Text style={styles.headerTitle}>All Restaurants</Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -97,16 +96,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
   },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800' },
   headerSubtitle: {

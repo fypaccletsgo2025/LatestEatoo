@@ -1,9 +1,28 @@
 // screens/BusinessProfileScreen.js
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { getBusinessProfile, submitBusinessProfile } from '../state/businessStore';
+import BackButton from '../components/BackButton';
+
+const BRAND = {
+  primary: '#FF4D00',
+  accent: '#FDAA48',
+  bg: '#FFF5ED',
+  card: '#FFFFFF',
+  line: '#FFE3C6',
+  ink: '#1F2937',
+  inkMuted: '#6B7280',
+};
 
 export default function BusinessProfileScreen() {
   const [bp, setBp] = React.useState(getBusinessProfile());
@@ -25,144 +44,299 @@ export default function BusinessProfileScreen() {
 
   const submit = () => {
     if (!name.trim() || !regNo.trim() || !email.trim()) {
-      Alert.alert('Missing info', 'Please fill Business Name, Registration No., and Email.');
+      Alert.alert(
+        'Missing info',
+        'Please fill Business Name, Registration No., and Email.'
+      );
       return;
     }
-    const data = { name, regNo, email, phone, address, city, state: stateVal, postcode, cuisine, website, notes };
+    const data = {
+      name,
+      regNo,
+      email,
+      phone,
+      address,
+      city,
+      state: stateVal,
+      postcode,
+      cuisine,
+      website,
+      notes,
+    };
     submitBusinessProfile(data);
     setBp(getBusinessProfile());
     setShowForm(false);
-    Alert.alert('Thank you!', 'Your business registration has been submitted for moderation.');
+    Alert.alert(
+      'Thank you!',
+      'Your business registration has been submitted for moderation.'
+    );
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'right', 'bottom', 'left']}>
-      <View style={{ backgroundColor: '#FF4D00', padding: 16, flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>Business Profile</Text>
-      </View>
-      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-
-      {/* Pending/Approved state */}
-      {bp && !showForm ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Submission Status</Text>
-          <Badge text={bp.status === 'pending' ? 'Pending Review' : bp.status} color="#fde68a" />
-          <View style={{ marginTop: 10 }}>
-            <Text style={styles.meta}><Text style={styles.metaLabel}>Business:</Text> {bp.data.name}</Text>
-            <Text style={styles.meta}><Text style={styles.metaLabel}>Reg No.:</Text> {bp.data.regNo}</Text>
-            <Text style={styles.meta}><Text style={styles.metaLabel}>Email:</Text> {bp.data.email}</Text>
-            {!!bp.data.phone && <Text style={styles.meta}><Text style={styles.metaLabel}>Phone:</Text> {bp.data.phone}</Text>}
-            {!!bp.data.address && <Text style={styles.meta}><Text style={styles.metaLabel}>Address:</Text> {bp.data.address}</Text>}
-          </View>
-          <Text style={{ color: '#6b7280', marginTop: 10 }}>Our team will contact you for verification and next steps.</Text>
-        </View>
-      ) : null}
-
-      {/* Landing when not registered */}
-      {!bp && !showForm ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Start a Business Account?</Text>
-          <Text style={{ color: '#6b7280', marginBottom: 10 }}>
-            Register to manage your restaurant details, share updates, and appear in recommendations.
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: BRAND.bg }}
+      edges={['top', 'right', 'bottom', 'left']}
+    >
+      <View style={styles.header}>
+        <BackButton onPress={() => navigation.goBack()} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Business Profile</Text>
+          <Text style={styles.headerSubtitle}>
+            Register your restaurant and manage your menu presence.
           </Text>
-          <TouchableOpacity onPress={() => setShowForm(true)} style={[styles.btn, { backgroundColor: '#111827' }]}> 
-            <Text style={styles.btnText}>Start Registration</Text>
-          </TouchableOpacity>
         </View>
-      ) : null}
-
-      {/* Registration form */}
-      {showForm && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Business Registration</Text>
-          <LabeledInput label="Business Name *" value={name} onChangeText={setName} />
-          <LabeledInput label="Registration No. (SSM) *" value={regNo} onChangeText={setRegNo} />
-          <LabeledInput label="Email *" value={email} onChangeText={setEmail} keyboardType="email-address" />
-          <LabeledInput label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-          <LabeledInput label="Address" value={address} onChangeText={setAddress} />
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <View style={{ flex: 1 }}><LabeledInput label="City" value={city} onChangeText={setCity} /></View>
-            <View style={{ flex: 1 }}><LabeledInput label="State" value={stateVal} onChangeText={setStateVal} /></View>
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Pending/Approved state */}
+        {bp && !showForm ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Submission Status</Text>
+            <StatusBadge
+              text={bp.status === 'pending' ? 'Pending Review' : bp.status}
+            />
+            <View style={{ marginTop: 12, gap: 6 }}>
+              <MetaRow label="Business" value={bp.data.name} />
+              <MetaRow label="Reg No." value={bp.data.regNo} />
+              <MetaRow label="Email" value={bp.data.email} />
+              {!!bp.data.phone && <MetaRow label="Phone" value={bp.data.phone} />}
+              {!!bp.data.address && <MetaRow label="Address" value={bp.data.address} />}
+            </View>
+            <Text style={styles.note}>
+              Our team will contact you for verification and next steps.
+            </Text>
           </View>
-          <LabeledInput label="Postcode" value={postcode} onChangeText={setPostcode} keyboardType="number-pad" />
-          <LabeledInput label="Cuisine" value={cuisine} onChangeText={setCuisine} />
-          <LabeledInput label="Website / Instagram (optional)" value={website} onChangeText={setWebsite} />
-          <LabeledInput label="Notes (optional)" value={notes} onChangeText={setNotes} multiline minHeight={80} />
+        ) : null}
 
-          <TouchableOpacity onPress={submit} style={[styles.btn, { backgroundColor: '#007AFF' }]}>
-            <Text style={styles.btnText}>Submit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowForm(false)} style={[styles.btn, { backgroundColor: '#6b7280', marginTop: 8 }]}>
-            <Text style={styles.btnText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        {/* Landing when not registered */}
+        {!bp && !showForm ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Start a Business Account?</Text>
+            <Text style={styles.bodyCopy}>
+              Register to manage your restaurant details, share updates, and appear in
+              recommendations.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowForm(true)}
+              style={[styles.btn, styles.primaryBtn]}
+            >
+              <Text style={styles.btnText}>Start Registration</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
-      {/* Demo: Already Registered Restaurant */}
-      {!showForm && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Espurrsso Bar</Text>
-            <Text style={{ color: '#6b7280', marginBottom: 10 }}>Cat cafe • Mont Kiara, KL</Text>
-          <TouchableOpacity
-            onPress={() => {
-              const demoRestaurant = {
-                id: 'rest-espurrsso-bar',
-                name: 'Espurrsso Bar',
-                location: 'Mont Kiara, KL',
-                cuisines: ['cafe'],
-                cuisine: 'cafe',
-                ambience: ['cat cafe', 'cozy', 'family friendly'],
-                rating: 4.7,
-                averagePrice: 'RM18',
-                averagePriceValue: 18,
-                theme: 'Cat cafe with specialty espresso and cuddly resident cats.',
-              };
-              navigation.navigate('ManageRestaurant', { restaurant: demoRestaurant });
-            }}
-            style={[styles.btn, { backgroundColor: '#111827' }]}
-          >
-            <Text style={styles.btnText}>Open Restaurant & Manage Menu</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </ScrollView>
-      <View style={{ height: 56, backgroundColor: '#FF4D00' }} />
+        {/* Registration form */}
+        {showForm && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Business Registration</Text>
+            <LabeledInput label="Business Name *" value={name} onChangeText={setName} />
+            <LabeledInput
+              label="Registration No. (SSM) *"
+              value={regNo}
+              onChangeText={setRegNo}
+            />
+            <LabeledInput
+              label="Email *"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+            />
+            <LabeledInput
+              label="Phone"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+            />
+            <LabeledInput label="Address" value={address} onChangeText={setAddress} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <LabeledInput label="City" value={city} onChangeText={setCity} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <LabeledInput label="State" value={stateVal} onChangeText={setStateVal} />
+              </View>
+            </View>
+            <LabeledInput
+              label="Postcode"
+              value={postcode}
+              onChangeText={setPostcode}
+              keyboardType="number-pad"
+            />
+            <LabeledInput label="Cuisine" value={cuisine} onChangeText={setCuisine} />
+            <LabeledInput
+              label="Website / Instagram (optional)"
+              value={website}
+              onChangeText={setWebsite}
+            />
+            <LabeledInput
+              label="Notes (optional)"
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              minHeight={80}
+            />
+
+            <TouchableOpacity onPress={submit} style={[styles.btn, styles.primaryBtn]}>
+              <Text style={styles.btnText}>Submit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowForm(false)}
+              style={[styles.btn, styles.secondaryBtn]}
+            >
+              <Text style={styles.secondaryBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Demo: Already Registered Restaurant */}
+        {!showForm && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Espurrsso Bar</Text>
+            <Text style={styles.bodyCopy}>Cat cafe - Mont Kiara, KL</Text>
+            <TouchableOpacity
+              onPress={() => {
+                const demoRestaurant = {
+                  id: 'rest-espurrsso-bar',
+                  name: 'Espurrsso Bar',
+                  location: 'Mont Kiara, KL',
+                  cuisines: ['cafe'],
+                  cuisine: 'cafe',
+                  ambience: ['cat cafe', 'cozy', 'family friendly'],
+                  rating: 4.7,
+                  averagePrice: 'RM18',
+                  averagePriceValue: 18,
+                  theme:
+                    'Cat cafe with specialty espresso and cuddly resident cats.',
+                };
+                navigation.navigate('ManageRestaurant', { restaurant: demoRestaurant });
+              }}
+              style={[styles.btn, styles.darkBtn]}
+            >
+              <Text style={styles.btnText}>Open Restaurant & Manage Menu</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 function LabeledInput({ label, style, minHeight, ...props }) {
   return (
-    <View style={{ marginBottom: 8 }}>
+    <View style={{ marginBottom: 12 }}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         {...props}
-        style={[styles.input, style, minHeight ? { minHeight, textAlignVertical: 'top' } : null]}
+        style={[
+          styles.input,
+          style,
+          minHeight ? { minHeight, textAlignVertical: 'top' } : null,
+        ]}
+        placeholderTextColor="#9CA3AF"
       />
     </View>
   );
 }
 
-function Badge({ text, color = '#e5e7eb' }) {
+function StatusBadge({ text }) {
   return (
-    <View style={{ backgroundColor: color, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginTop: 8 }}>
-      <Text style={{ fontSize: 12, color: '#111827' }}>{text}</Text>
+    <View style={styles.badge}>
+      <Text style={styles.badgeText}>{text}</Text>
     </View>
   );
 }
 
+function MetaRow({ label, value }) {
+  return (
+    <Text style={styles.meta}>
+      <Text style={styles.metaLabel}>{label}:</Text> {value}
+    </Text>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#d1ccc7', padding: 16 },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 12 },
-  card: {
-    backgroundColor: '#fff', padding: 12, borderRadius: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  header: {
+    backgroundColor: BRAND.primary,
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
-  cardTitle: { fontWeight: '800', marginBottom: 8 },
-  label: { fontWeight: '700', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: '#f9fafb' },
-  btn: { paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  headerSubtitle: {
+    color: '#FFEBD8',
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  container: {
+    padding: 20,
+    backgroundColor: BRAND.bg,
+    gap: 16,
+  },
+  card: {
+    backgroundColor: BRAND.card,
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    gap: 4,
+  },
+  cardTitle: {
+    fontWeight: '800',
+    fontSize: 16,
+    color: BRAND.ink,
+    marginBottom: 6,
+  },
+  label: {
+    fontWeight: '700',
+    marginBottom: 6,
+    color: BRAND.ink,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#fff',
+    color: BRAND.ink,
+  },
+  btn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  primaryBtn: { backgroundColor: BRAND.primary },
+  darkBtn: { backgroundColor: '#1F2937' },
+  secondaryBtn: {
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    backgroundColor: '#fff',
+  },
   btnText: { color: '#fff', fontWeight: '700' },
-  meta: { color: '#111827', marginTop: 2 },
+  secondaryBtnText: { color: BRAND.ink, fontWeight: '700' },
+  badge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#FFECC2',
+    marginTop: 4,
+  },
+  badgeText: { color: BRAND.ink, fontWeight: '600', fontSize: 12 },
+  meta: { color: BRAND.ink, fontSize: 13 },
   metaLabel: { fontWeight: '700' },
+  note: { color: BRAND.inkMuted, marginTop: 12, fontSize: 13, lineHeight: 18 },
+  bodyCopy: { color: BRAND.inkMuted, fontSize: 14, lineHeight: 20 },
 });

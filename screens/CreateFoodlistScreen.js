@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { availableItems } from '../data/mockData';
+import BackButton from '../components/BackButton';
 
 const BRAND = {
   primary: '#FF4D00',   // bold orange
@@ -127,14 +128,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
   const Header = () => (
     <View style={styles.headerWrap}>
       <View style={styles.headerBar}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="arrow-back" size={20} color="#fff" />
-        </TouchableOpacity>
+        <BackButton onPress={() => navigation.goBack()} />
 
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={styles.headerTitle}>Create Foodlist</Text>
@@ -145,7 +139,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
           </Text>
         </View>
 
-        <View style={{ width: 36, height: 36 }} />
+        <View style={{ width: 40, height: 40 }} />
       </View>
 
       <View style={styles.inputCard}>
@@ -354,14 +348,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
     elevation: 6,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
   headerSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.9)' },
