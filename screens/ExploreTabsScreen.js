@@ -1,5 +1,5 @@
 // screens/ExploreTabsScreen.js
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,58 +10,7 @@ import UpdatesScreen from './UpdatesScreen';
 import LibraryScreen from './LibraryScreen';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
-
-const TabButton = ({ label, icon, active, onPress }) => {
-  const isActive = active;
-
-  const iconColor = isActive ? '#fff' : '#000';
-  const textColor = isActive ? '#fff' : '#000';
-  const backgroundColor = isActive ? '#000' : 'transparent';
-  const borderStyle = isActive
-    ? { borderColor: '#333', borderWidth: 1 }
-    : { borderWidth: 0 };
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={{
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 8,
-      }}
-    >
-      <View
-        style={{
-          width: 70,
-          height: 60,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 20,
-          backgroundColor,
-          ...borderStyle,
-        }}
-      >
-        <Ionicons name={icon} size={22} color={iconColor} style={{ marginBottom: 2 }} />
-        <Text
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.9}
-          style={{
-            color: textColor,
-            fontWeight: isActive ? '700' : '600',
-            fontSize: 12,
-            includeFontPadding: false,
-          }}
-        >
-          {label}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-};
+import AnimatedPillTabBar from '../components/AnimatedPillTabBar';
 
 export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
@@ -87,6 +36,41 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
       : tab === 'review'
       ? 'Updates'
       : 'Library';
+  const tabItems = useMemo(
+    () => [
+      {
+        key: 'home',
+        label: 'Home',
+        activeIcon: 'home',
+        inactiveIcon: 'home-outline',
+      },
+      {
+        key: 'search',
+        label: 'Search',
+        activeIcon: 'search',
+        inactiveIcon: 'search-outline',
+      },
+      {
+        key: 'add',
+        label: 'Add',
+        isCenter: true,
+      },
+      {
+        key: 'review',
+        label: 'Updates',
+        activeIcon: 'chatbubble-ellipses',
+        inactiveIcon: 'chatbubble-ellipses-outline',
+      },
+      {
+        key: 'library',
+        label: 'Library',
+        activeIcon: 'book',
+        inactiveIcon: 'book-outline',
+      },
+    ],
+    []
+  );
+  const isTabBarVisible = !drawerOpen && !showPQ;
 
   return (
     <SafeAreaView
@@ -261,55 +245,12 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
           </View>
         </>
       )}
-      <View
-        style={{
-          paddingTop: 6,
-          paddingHorizontal: 8,
-          paddingBottom: 10,
-          flexDirection: 'row',
-          borderTopWidth: 1,
-          borderTopColor: '#e5e7eb',
-          backgroundColor: '#FF4D00',
-          shadowColor: '#000',
-          shadowOpacity: 0.06,
-          shadowRadius: 6,
-          shadowOffset: { width: 0, height: -2 },
-          elevation: 4,
-        }}
-      >
-        <TabButton
-          label="Home"
-          icon={tab === 'home' ? 'home' : 'home-outline'}
-          active={tab === 'home'}
-          onPress={() => setTab('home')}
-        />
-        <TabButton
-          label="Search"
-          icon={tab === 'search' ? 'search' : 'search-outline'}
-          active={tab === 'search'}
-          onPress={() => setTab('search')}
-        />
-        <TabButton
-          label="Add"
-          icon={tab === 'add' ? 'add-circle' : 'add-circle-outline'}
-          active={tab === 'add'}
-          onPress={() => setTab('add')}
-        />
-        <TabButton
-          label="Updates"
-          icon={
-            tab === 'review' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'
-          }
-          active={tab === 'review'}
-          onPress={() => setTab('review')}
-        />
-        <TabButton
-          label="Library"
-          icon={tab === 'library' ? 'book' : 'book-outline'}
-          active={tab === 'library'}
-          onPress={() => setTab('library')}
-        />
-      </View>
+      <AnimatedPillTabBar
+        tabs={tabItems}
+        activeTab={tab}
+        onTabPress={setTab}
+        visible={isTabBarVisible}
+      />
       <PreferenceQuestionnaireSheet
         open={showPQ}
         onClose={() => setShowPQ(false)}
