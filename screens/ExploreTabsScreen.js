@@ -19,13 +19,20 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [showPQ, setShowPQ] = useState(false);
   const [appliedSelections, setAppliedSelections] = useState(null);
 
-  const displayName = (currentUser?.fullName || currentUser?.username || '').trim();
+  const rawName = (currentUser?.name || currentUser?.fullName || '').trim();
+  const displayName = rawName || currentUser?.email || 'Guest';
   const profileInitial = (
+    rawName?.[0] ||
+    currentUser?.email?.[0] ||
     displayName[0] ||
-    currentUser?.username?.[0] ||
     '?'
   ).toUpperCase();
-  const usernameTag = currentUser?.username ? `@${currentUser.username}` : null;
+  const secondaryLine =
+    rawName && currentUser?.email && rawName !== currentUser.email
+      ? currentUser.email
+      : rawName
+      ? null
+      : currentUser?.email || null;
   const activeTabLabel =
     tab === 'home'
       ? 'Home'
@@ -189,8 +196,10 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
                 <Text style={{ fontWeight: '700', color: '#111827', fontSize: 15 }}>
                   {displayName || 'Guest'}
                 </Text>
-                {usernameTag ? (
-                  <Text style={{ color: '#6B7280', fontSize: 12 }}>{usernameTag}</Text>
+                {secondaryLine ? (
+                  <Text style={{ color: '#6B7280', fontSize: 12 }}>
+                    {secondaryLine}
+                  </Text>
                 ) : null}
               </View>
             </View>

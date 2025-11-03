@@ -1,11 +1,12 @@
 // navigation/AppNavigator.js
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { NavigationContainer } from '@react-navigation/native';
 
 // Auth screens
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
+import { account } from '../services/appwrite';
 
 // --- Core Screens ---
 import ExploreTabsScreen from '../screens/ExploreTabsScreen';
@@ -41,67 +42,87 @@ import ManageRestaurantScreen from '../screens/ManageRestaurantScreen';
 import DiscoverResultsScreen from '../screens/DiscoverResultsScreen';
 
 const Stack = createStackNavigator();
-const DEFAULT_ACCOUNTS = [
-  {
-    username: 'octopush',
-    password: '123abc',
-    fullName: 'Octopush Tester',
-    email: 'octopush@example.com',
-  },
-];
 
 export default function AppNavigator() {
-  const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
   const [currentUser, setCurrentUser] = useState(null);
 
-  const usernames = useMemo(
-    () => accounts.map((account) => account.username.toLowerCase()),
-    [accounts]
-  );
+  useEffect(() => {
+    let mounted = true;
 
-  const handleLoginAttempt = async ({ username, password }) => {
-    const normalized = String(username || '').trim().toLowerCase();
-    const account = accounts.find(
-      (entry) => entry.username.toLowerCase() === normalized
-    );
-
-    if (!account) {
-      return { success: false, error: 'We could not find that username.' };
-    }
-
-    if (String(account.password) !== String(password)) {
-      return { success: false, error: 'Incorrect password. Try again?' };
-    }
-
-    setCurrentUser(account);
-    return { success: true, account };
-  };
-
-  const handleSignupAttempt = async ({ fullName, username, email, password }) => {
-    const normalizedUsername = String(username || '').trim();
-    const normalizedLower = normalizedUsername.toLowerCase();
-
-    if (!normalizedUsername) {
-      return { success: false, error: 'Choose a username to continue.' };
-    }
-
-    if (usernames.includes(normalizedLower)) {
-      return { success: false, error: 'That username is already taken.' };
-    }
-
-    const newAccount = {
-      fullName: String(fullName || '').trim(),
-      username: normalizedUsername,
-      email: String(email || '').trim(),
-      password: String(password || ''),
+    const loadSession = async () => {
+      try {
+        const profile = await account.get();
+        if (mounted) {
+          setCurrentUser(profile);
+        }
+      } catch (err) {
+        if (mounted) {
+          setCurrentUser(null);
+        }
+      }
     };
 
-    setAccounts((prev) => [...prev, newAccount]);
-    setCurrentUser(newAccount);
-    return { success: true, account: newAccount };
+    loadSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleLoginAttempt = async ({ email, password }) => {
+    const trimmedEmail = String(email || '').trim().toLowerCase();
+
+    if (!trimmedEmail || !password) {
+      return {
+        success: false,
+        error: 'Enter both email and password to continue.',
+      };
+    }
+
+    try {
+      await account.createEmailPasswordSession(trimmedEmail, password);
+      const profile = await account.get();
+      setCurrentUser(profile);
+      return { success: true, account: profile };
+    } catch (err) {
+      return {
+        success: false,
+        error: err?.message || 'Login failed. Check your email or password.',
+      };
+    }
   };
 
-  const handleLogout = () => setCurrentUser(null);
+  const handleSignupAttempt = async ({ fullName, email, password }) => {
+    const trimmedFullName = String(fullName || '').trim();
+    const trimmedEmail = String(email || '').trim().toLowerCase();
+
+    if (!trimmedFullName || !trimmedEmail || !password) {
+      return {
+        success: false,
+        error: 'Fill in name, email, and password to continue.',
+      };
+    }
+
+    try {
+      await account.create('unique()', trimmedEmail, password, trimmedFullName);
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err?.message || 'Signup failed. Try another email.',
+      };
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await account.deleteSession('current');
+    } catch (err) {
+      // Best-effort logout; proceed even if session is already gone.
+    } finally {
+      setCurrentUser(null);
+    }
+  };
 
   return (
     <NavigationContainer>

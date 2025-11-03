@@ -32,7 +32,6 @@ export default function SignupScreen({
   navigation,
 }) {
   const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,7 +42,12 @@ export default function SignupScreen({
   const [agreed, setAgreed] = useState(false);
   const [showTos, setShowTos] = useState(false);
 
-  const moveToLogin = () => {
+  const moveToLogin = (params) => {
+    if (params) {
+      navigation?.replace('Login', params);
+      return;
+    }
+
     if (typeof onNavigateToLogin === 'function') {
       onNavigateToLogin();
     } else {
@@ -52,11 +56,10 @@ export default function SignupScreen({
   };
 
   const handleSubmit = async () => {
-    const trimmedUsername = username.trim();
     const trimmedFullName = fullName.trim();
     const trimmedEmail = email.trim();
 
-    if (!trimmedFullName || !trimmedUsername || !password || !confirmPassword) {
+    if (!trimmedFullName || !trimmedEmail || !password || !confirmPassword) {
       setError('Fill in all required fields to continue.');
       return;
     }
@@ -81,7 +84,6 @@ export default function SignupScreen({
       const result = await Promise.resolve(
         onSignupAttempt?.({
           fullName: trimmedFullName,
-          username: trimmedUsername,
           email: trimmedEmail,
           password,
         })
@@ -93,6 +95,11 @@ export default function SignupScreen({
       }
 
       setError('');
+      moveToLogin({
+        justSignedUp: true,
+        prefillEmail: trimmedEmail,
+      });
+      return;
     } finally {
       setSubmitting(false);
     }
@@ -134,18 +141,7 @@ export default function SignupScreen({
             />
 
             <Field
-              label="Username"
-              value={username}
-              onChangeText={setUsername}
-              placeholder="Choose a username"
-              icon="at-outline"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="next"
-            />
-
-            <Field
-              label="Email (optional)"
+              label="Email"
               value={email}
               onChangeText={setEmail}
               placeholder="you@example.com"
@@ -163,6 +159,9 @@ export default function SignupScreen({
               placeholder="Create a password"
               icon="lock-closed-outline"
               secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
               returnKeyType="next"
             />
 
@@ -173,6 +172,9 @@ export default function SignupScreen({
               placeholder="Re-enter password"
               icon="shield-checkmark-outline"
               secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
               returnKeyType="done"
               onSubmitEditing={handleSubmit}
             />
@@ -285,7 +287,10 @@ export default function SignupScreen({
   );
 }
 
-function Field({ label, icon, style, ...inputProps }) {
+function Field({ label, icon, style, secureTextEntry, ...inputProps }) {
+  const isSecure = Boolean(secureTextEntry);
+  const [hidden, setHidden] = useState(isSecure);
+
   return (
     <View style={[styles.field, style]}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -301,8 +306,23 @@ function Field({ label, icon, style, ...inputProps }) {
         <TextInput
           style={styles.fieldInput}
           placeholderTextColor={BRAND.inkMuted}
+          secureTextEntry={isSecure ? hidden : false}
           {...inputProps}
         />
+        {isSecure ? (
+          <TouchableOpacity
+            onPress={() => setHidden((prev) => !prev)}
+            style={{ padding: 6 }}
+            accessibilityRole="button"
+            accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
+          >
+            <Ionicons
+              name={hidden ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color={BRAND.inkMuted}
+            />
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );

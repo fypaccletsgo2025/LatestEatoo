@@ -1,5 +1,5 @@
 // screens/LoginScreen.js
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,13 +29,50 @@ export default function LoginScreen({
   onLoginAttempt,
   onNavigateToSignup,
   navigation,
+  route,
 }) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const paramsHandledRef = useRef({ prefillEmail: undefined, justSignedUp: undefined });
+
+  useEffect(() => {
+    const params = route?.params;
+    if (!params) {
+      return;
+    }
+
+    const nextHandled = {
+      prefillEmail: params.prefillEmail,
+      justSignedUp: params.justSignedUp,
+    };
+
+    const alreadyHandled =
+      paramsHandledRef.current.prefillEmail === nextHandled.prefillEmail &&
+      paramsHandledRef.current.justSignedUp === nextHandled.justSignedUp;
+
+    if (alreadyHandled) {
+      return;
+    }
+
+    paramsHandledRef.current = nextHandled;
+
+    if (params.prefillEmail) {
+      setEmail(params.prefillEmail);
+    }
+
+    if (params.justSignedUp) {
+      setInfoMessage('Account created! Sign in with your new password.');
+    }
+  }, [route?.params]);
 
   const moveToSignup = () => {
+    setInfoMessage('');
+    setError('');
+    setPassword('');
     if (typeof onNavigateToSignup === 'function') {
       onNavigateToSignup();
     } else {
@@ -44,17 +81,17 @@ export default function LoginScreen({
   };
 
   const handleSubmit = async () => {
-    const trimmedUser = username.trim();
+    const trimmedEmail = email.trim();
 
-    if (!trimmedUser || !password) {
-      setError('Enter both username and password to continue.');
+    if (!trimmedEmail || !password) {
+      setError('Enter both email and password to continue.');
       return;
     }
 
     setSubmitting(true);
     try {
       const result = await Promise.resolve(
-        onLoginAttempt?.({ username: trimmedUser, password })
+        onLoginAttempt?.({ email: trimmedEmail, password })
       );
 
       if (!result?.success) {
@@ -95,13 +132,14 @@ export default function LoginScreen({
             <Text style={styles.cardTitle}>Sign in to your account</Text>
 
             <Field
-              label="Username"
-              value={username}
-              onChangeText={setUsername}
-              icon="person-outline"
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              icon="mail-outline"
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="Enter your username"
+              keyboardType="email-address"
+              placeholder="Enter your email"
               returnKeyType="next"
             />
 
@@ -112,27 +150,58 @@ export default function LoginScreen({
               icon="lock-closed-outline"
               secureTextEntry
               placeholder="Enter your password"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="password"
               returnKeyType="done"
               onSubmitEditing={handleSubmit}
             />
 
             {!!error && <Text style={styles.error}>{error}</Text>}
 
-            <TouchableOpacity
-              style={[styles.button, submitting && styles.buttonDisabled]}
-              activeOpacity={0.9}
-              onPress={handleSubmit}
-              disabled={submitting}
+              <TouchableOpacity
+                style={[styles.button, submitting && styles.buttonDisabled]}
+                activeOpacity={0.9}
+                onPress={handleSubmit}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="log-in-outline" size={18} color="#fff" />
+                    <Text style={styles.buttonText}>Sign in</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+            <View
+              style={[
+                styles.testerNote,
+                infoMessage && {
+                  backgroundColor: '#ECFDF5',
+                  borderColor: '#BBF7D0',
+                },
+              ]}
             >
-              {submitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="log-in-outline" size={18} color="#fff" />
-                  <Text style={styles.buttonText}>Sign in</Text>
-                </>
-              )}
-            </TouchableOpacity>
+              <Ionicons
+                name={
+                  infoMessage ? 'checkmark-circle-outline' : 'information-circle-outline'
+                }
+                size={20}
+                color={infoMessage ? '#047857' : BRAND.primary}
+              />
+              <Text
+                style={[
+                  styles.testerText,
+                  infoMessage && { color: '#047857' },
+                ]}
+              >
+                {infoMessage
+                  ? infoMessage
+                  : 'Sign in with an Appwrite email/password account. Create one in the Appwrite Console if you do not have one yet.'}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.footer}>
@@ -147,7 +216,10 @@ export default function LoginScreen({
   );
 }
 
-function Field({ label, icon, style, ...inputProps }) {
+function Field({ label, icon, style, secureTextEntry, ...inputProps }) {
+  const isSecure = Boolean(secureTextEntry);
+  const [hidden, setHidden] = useState(isSecure);
+
   return (
     <View style={[styles.field, style]}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -163,8 +235,23 @@ function Field({ label, icon, style, ...inputProps }) {
         <TextInput
           style={styles.fieldInput}
           placeholderTextColor={BRAND.inkMuted}
+          secureTextEntry={isSecure ? hidden : false}
           {...inputProps}
         />
+        {isSecure ? (
+          <TouchableOpacity
+            onPress={() => setHidden((prev) => !prev)}
+            style={{ padding: 6 }}
+            accessibilityRole="button"
+            accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
+          >
+            <Ionicons
+              name={hidden ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color={BRAND.inkMuted}
+            />
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
