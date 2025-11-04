@@ -11,9 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import BackButton from '../components/BackButton';
 import { isItemLiked, likeItem, unlikeItem } from '../state/libraryStore';
+
+// 👉 Appwrite (frontend client)
+import { db, DB_ID, COL } from '../appwrite';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -26,19 +29,142 @@ const BRAND = {
   accent: '#FFD4AF',
 };
 
-export default function FoodItemDetailScreen({ route }) {
-  const { item } = route.params;
+const toTitleCase = (value) => {
+  if (!value) return '';
+  const normalized = String(value)
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return normalized.replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const toRM = (n) =>
+  n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`;
+
+/** Remove functions/instances so we never pass non-serializable params around */
+function stripFunctions(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = Array.isArray(obj) ? [] : {};
+  for (const k in obj) {
+    const v = obj[k];
+    if (typeof v === 'function') continue;
+    out[k] = typeof v === 'object' ? stripFunctions(v) : v;
+  }
+  return out;
+}
+
+/** Build the exact shape this screen expects from raw DB docs */
+function normalizeItem({ itemDoc, restaurantDoc }) {
+  const price = toRM(itemDoc?.priceRM);
+  return {
+    id: itemDoc?.$id,
+    name: itemDoc?.name || '',
+    type: itemDoc?.type || 'other',
+    price,
+    cuisine: itemDoc?.cuisine || '',
+    description: itemDoc?.description || '',
+    tags: Array.isArray(itemDoc?.tags) ? itemDoc.tags : [],
+    mood: Array.isArray(itemDoc?.mood) ? itemDoc.mood : [],
+    rating: itemDoc?.rating ?? null,
+    restaurantId: itemDoc?.restaurantId || null,
+    menuId: itemDoc?.menuId || null,
+
+    // For UI labels:
+    restaurant: restaurantDoc?.name || '',
+    location: restaurantDoc?.location || '',
+  };
+}
+
+export default function FoodItemDetailScreen() {
   const navigation = useNavigation();
-  const [liked, setLiked] = React.useState(isItemLiked(item.id));
+  const route = useRoute();
+  const params = route.params || {};
+
+  // You can pass either { item } (already fetched) or { itemId }
+  const passedItem = params.item ? stripFunctions(params.item) : null;
+  const passedItemId = params.itemId || passedItem?.id;
+
+  const [item, setItem] = React.useState(passedItem || null);
+  const [liked, setLiked] = React.useState(
+    passedItem ? isItemLiked(passedItem.id) : false
+  );
+  const [loading, setLoading] = React.useState(!passedItem); // load only if no item provided
+  const [error, setError] = React.useState(null);
 
   React.useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function fetchItem() {
+      if (item || !passedItemId) return;
+      setLoading(true);
+      setError(null);
+      try {
+        // 1) get the item document
+        const it = await db.getDocument(DB_ID, COL.items, passedItemId);
+
+        // 2) get the restaurant (for name/location display)
+        let restaurantDoc = null;
+        if (it.restaurantId) {
+          try {
+            restaurantDoc = await db.getDocument(DB_ID, COL.restaurants, it.restaurantId);
+          } catch (e) {
+            // restaurant might be missing; keep going
+          }
+        }
+
+        const normalized = normalizeItem({ itemDoc: it, restaurantDoc });
+        if (!cancelled) {
+          setItem(normalized);
+          setLiked(isItemLiked(normalized.id));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e?.message || 'Failed to load item');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchItem();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passedItemId]);
+
   const toggleLike = () => {
+    if (!item?.id) return;
     if (liked) { unlikeItem(item.id); setLiked(false); }
     else { likeItem(item.id); setLiked(true); }
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text>Loading…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+  if (error || !item) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <Text style={{ color: 'red', textAlign: 'center' }}>
+            {error || 'Item not found'}
+          </Text>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 12 }}>
+            <Text style={{ color: BRAND.primary, fontWeight: '700' }}>Go back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const restaurantLabel = [item.restaurant, item.location].filter(Boolean).join(' • ');
 
@@ -56,7 +182,7 @@ export default function FoodItemDetailScreen({ route }) {
 
             <View style={{ flex: 1, alignItems: 'center' }} />
 
-            {/* Removed heart from here */}
+            {/* Right spacer to balance layout */}
             <View style={{ width: 40, height: 40 }} />
           </View>
 
@@ -94,7 +220,9 @@ export default function FoodItemDetailScreen({ route }) {
               {!!item.rating && (
                 <View style={styles.heroStat}>
                   <Text style={styles.heroStatLabel}>Rating</Text>
-                  <Text style={styles.heroStatValue}>{Number(item.rating).toFixed(1)}⭐</Text>
+                  <Text style={styles.heroStatValue}>
+                    {Number(item.rating).toFixed(1)}⭐
+                  </Text>
                 </View>
               )}
               {!!item.cuisine && (
@@ -143,16 +271,6 @@ function Section({ title, children }) {
       {children}
     </View>
   );
-}
-
-function toTitleCase(value) {
-  if (!value) return '';
-  const normalized = String(value)
-    .replace(/[-_]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-  return normalized.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const styles = StyleSheet.create({
@@ -271,4 +389,4 @@ const styles = StyleSheet.create({
   tagText: { color: BRAND.ink, fontWeight: '700' },
 });
 
-export { };
+export {};

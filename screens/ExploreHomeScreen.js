@@ -1,3 +1,4 @@
+// ExploreHomeScreen.js
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
@@ -11,7 +12,10 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
-import { availableItems, availableRestaurants } from '../data/mockData';
+
+// 👉 uses your frontend Appwrite client (place at project root: appwrite.ts/js)
+import { db, DB_ID, COL } from '../appwrite';
+import { Query } from 'appwrite';
 
 export default function ExploreHomeScreen({
   onOpenDrawer,
@@ -19,6 +23,14 @@ export default function ExploreHomeScreen({
   externalSelections,
 }) {
   const navigation = useNavigation();
+
+  // -------- live data (replaces mock imports) --------
+  const [availableRestaurants, setAvailableRestaurants] = useState([]);
+  const [availableItems, setAvailableItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  // -------- UI state (unchanged) --------
   const [selectedDiet, setSelectedDiet] = useState([]);
   const [selectedCuisine, setSelectedCuisine] = useState([]);
   const [selectedMood, setSelectedMood] = useState([]);
@@ -26,6 +38,126 @@ export default function ExploreHomeScreen({
   const [sortBy, setSortBy] = useState('relevance');
   const [search, setSearch] = useState('');
 
+  // ---------- helpers to match your mock data shapes ----------
+  const toRM = (n) => (n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`);
+  const toNumberPrice = (p) => parseInt(String(p).replace('RM', ''));
+  const sum = (arr) => arr.reduce((s, n) => s + n, 0);
+
+  function computeRestaurantMeta(rDoc, menusByRestaurant, itemsByRestaurant) {
+    const items = (itemsByRestaurant.get(rDoc.$id) || []).map((it) => ({
+      id: it.$id,
+      name: it.name,
+      type: it.type,
+      price: toRM(it.priceRM),
+      cuisine: it.cuisine || '',
+      description: it.description || '',
+      tags: it.tags || [],
+      mood: it.mood || [],
+      rating: it.rating ?? null,
+      restaurant: rDoc.name,
+      location: rDoc.location || '',
+      restaurantId: rDoc.$id,
+      menuId: it.menuId,
+    }));
+
+    const prices = items.map((i) => toNumberPrice(i.price)).filter((n) => !isNaN(n));
+    const averagePriceValue = prices.length ? Math.round(sum(prices) / prices.length) : 0;
+    const averagePrice = toRM(averagePriceValue);
+    const rating =
+      rDoc.rating ??
+      (items.length ? Math.round((sum(items.map((i) => i.rating || 0)) / items.length) * 10) / 10 : 0);
+
+    return {
+      id: rDoc.$id,
+      name: rDoc.name,
+      location: rDoc.location || '',
+      cuisines: rDoc.cuisines || [],
+      cuisine: (rDoc.cuisines && rDoc.cuisines[0]) || '',
+      ambience: rDoc.ambience || [],
+      rating,
+      averagePrice,
+      averagePriceValue,
+      theme: rDoc.theme || '',
+      topItems: items.sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 3).map((i) => i.id),
+      menus: (menusByRestaurant.get(rDoc.$id) || []).map((m) => ({
+        id: m.$id,
+        name: m.name,
+      })),
+      reviews: [],
+      matchesPriceRange(range) {
+        switch (range) {
+          case 'RM0-RM10': return this.averagePriceValue <= 10;
+          case 'RM11-RM20': return this.averagePriceValue >= 11 && this.averagePriceValue <= 20;
+          case 'RM21-RM30': return this.averagePriceValue >= 21 && this.averagePriceValue <= 30;
+          case 'RM31+':     return this.averagePriceValue >= 31;
+          default: return true;
+        }
+      },
+    };
+  }
+
+  async function loadData() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [rRes, mRes, iRes] = await Promise.all([
+        db.listDocuments(DB_ID, COL.restaurants, [Query.limit(200)]),
+        db.listDocuments(DB_ID, COL.menus,       [Query.limit(500)]),
+        db.listDocuments(DB_ID, COL.items,       [Query.limit(1000)]),
+      ]);
+
+      const restaurants = rRes.documents;
+      const menus = mRes.documents;
+      const items = iRes.documents;
+
+      const menusByRestaurant = new Map();
+      for (const m of menus) {
+        if (!menusByRestaurant.has(m.restaurantId)) menusByRestaurant.set(m.restaurantId, []);
+        menusByRestaurant.get(m.restaurantId).push(m);
+      }
+      const itemsByRestaurant = new Map();
+      for (const it of items) {
+        if (!itemsByRestaurant.has(it.restaurantId)) itemsByRestaurant.set(it.restaurantId, []);
+        itemsByRestaurant.get(it.restaurantId).push(it);
+      }
+
+      const restaurantsMeta = restaurants.map((r) =>
+        computeRestaurantMeta(r, menusByRestaurant, itemsByRestaurant)
+      );
+
+      const restaurantById = new Map(restaurants.map((r) => [r.$id, r]));
+      const flatItems = items.map((it) => {
+        const r = restaurantById.get(it.restaurantId);
+        return {
+          id: it.$id,
+          name: it.name,
+          type: it.type,
+          price: toRM(it.priceRM),
+          cuisine: it.cuisine || '',
+          description: it.description || '',
+          tags: it.tags || [],
+          mood: it.mood || [],
+          rating: it.rating ?? null,
+          restaurant: r ? r.name : '',
+          location: r ? (r.location || '') : '',
+          restaurantId: it.restaurantId,
+          menuId: it.menuId,
+        };
+      });
+
+      setAvailableRestaurants(restaurantsMeta);
+      setAvailableItems(flatItems);
+    } catch (e) {
+      setLoadError(e?.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // load backend data once
+  useEffect(() => { loadData(); }, []);
+
+  // keep your external selections hydration
   useEffect(() => {
     if (externalSelections) {
       const {
@@ -41,18 +173,12 @@ export default function ExploreHomeScreen({
     }
   }, [externalSelections]);
 
-  const handleSearchChange = (text) => {
-    setSearch(text);
-  };
+  // search handlers
+  const handleSearchChange = (text) => setSearch(text);
+  const handleSubmitSearch = () => setSearch((prev) => prev.trim());
+  const handleClearSearch = () => setSearch('');
 
-  const handleSubmitSearch = () => {
-    setSearch((prev) => prev.trim());
-  };
-
-  const handleClearSearch = () => {
-    setSearch('');
-  };
-
+  // suggestions from live data
   const suggestions = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return [];
@@ -74,95 +200,74 @@ export default function ExploreHomeScreen({
       }));
 
     const restaurantMatches = availableRestaurants
-      .filter((restaurant) => {
-        const nameMatch = String(restaurant.name).toLowerCase().includes(term);
-        const cuisineMatch = String(restaurant.cuisine).toLowerCase().includes(term);
-        const locationMatch = String(restaurant.location).toLowerCase().includes(term);
-        const extraCuisineMatch = (restaurant.cuisines || [])
+      .filter((r) => {
+        const nameMatch = String(r.name).toLowerCase().includes(term);
+        const cuisineMatch = String(r.cuisine || '').toLowerCase().includes(term);
+        const locationMatch = String(r.location || '').toLowerCase().includes(term);
+        const extraCuisineMatch = (r.cuisines || [])
           .map((c) => String(c).toLowerCase())
           .some((c) => c.includes(term));
         return nameMatch || cuisineMatch || locationMatch || extraCuisineMatch;
       })
       .slice(0, 5)
-      .map((restaurant) => ({
-        id: `restaurant-${restaurant.id}`,
-        label: restaurant.name,
-        subtitle: `${restaurant.location} - ${restaurant.cuisine}`,
+      .map((r) => ({
+        id: `restaurant-${r.id}`,
+        label: r.name,
+        subtitle: `${r.location} - ${r.cuisine}`,
         kind: 'restaurant',
-        payload: restaurant,
+        payload: r,
       }));
 
     return [...itemMatches, ...restaurantMatches].slice(0, 8);
-  }, [search]);
+  }, [search, availableItems, availableRestaurants]);
 
-  const handleSelectSuggestion = (suggestion) => {
-    if (suggestion.kind === 'item') {
-      navigation.navigate('PreferenceItemDetail', { item: suggestion.payload });
-    } else if (suggestion.kind === 'restaurant') {
-      navigation.navigate('RestaurantDetail', { restaurant: suggestion.payload });
+  const handleSelectSuggestion = (s) => {
+    if (s.kind === 'item') {
+      navigation.navigate('PreferenceItemDetail', { item: s.payload });
+    } else if (s.kind === 'restaurant') {
+      navigation.navigate('RestaurantDetail', { restaurant: s.payload });
     }
     setSearch('');
   };
 
-  // filters unchanged
+  // filters (unchanged, but now use live arrays)
   const filteredItems = useMemo(() => {
     const items = availableItems.filter((item) => {
       const dietMatch =
         selectedDiet.length === 0 ||
-        selectedDiet.some(
-          (d) => d.toLowerCase() === String(item.type).toLowerCase()
-        );
+        selectedDiet.some((d) => d.toLowerCase() === String(item.type).toLowerCase());
       const cuisineMatch =
         selectedCuisine.length === 0 ||
-        selectedCuisine.some(
-          (c) => c.toLowerCase() === String(item.cuisine).toLowerCase()
-        );
+        selectedCuisine.some((c) => c.toLowerCase() === String(item.cuisine).toLowerCase());
+
       const r = availableRestaurants.find((rr) => rr.name === item.restaurant);
-      const ambience = (r?.ambience || []).map((x) =>
-        String(x).toLowerCase().replace(/ /g, '')
-      );
+      const ambience = (r?.ambience || []).map((x) => String(x).toLowerCase().replace(/ /g, ''));
       const moodMatch =
         selectedMood.length === 0 ||
-        selectedMood.every((m) =>
-          ambience.includes(String(m).toLowerCase().replace(/ /g, ''))
-        );
+        selectedMood.every((m) => ambience.includes(String(m).toLowerCase().replace(/ /g, '')));
+
       const priceMatch =
         selectedPrice.length === 0 ||
         selectedPrice.some((range) => {
-          const price = parseInt(String(item.price).replace('RM', ''));
+          const price = toNumberPrice(item.price);
           switch (range) {
-            case 'RM0-RM10':
-              return price <= 10;
-            case 'RM11-RM20':
-              return price >= 11 && price <= 20;
-            case 'RM21-RM30':
-              return price >= 21 && price <= 30;
-            case 'RM31+':
-              return price >= 31;
-            default:
-              return true;
+            case 'RM0-RM10': return price <= 10;
+            case 'RM11-RM20': return price >= 11 && price <= 20;
+            case 'RM21-RM30': return price >= 21 && price <= 30;
+            case 'RM31+':     return price >= 31;
+            default: return true;
           }
         });
+
       return dietMatch && cuisineMatch && moodMatch && priceMatch;
     });
 
     const sorted = [...items];
-    if (sortBy === 'rating_desc')
-      sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc')
-      sorted.sort(
-        (a, b) =>
-          parseInt(String(a.price).replace('RM', '')) -
-          parseInt(String(b.price).replace('RM', ''))
-      );
-    else if (sortBy === 'price_desc')
-      sorted.sort(
-        (a, b) =>
-          parseInt(String(b.price).replace('RM', '')) -
-          parseInt(String(a.price).replace('RM', ''))
-      );
+    if (sortBy === 'rating_desc') sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    else if (sortBy === 'price_asc') sorted.sort((a, b) => toNumberPrice(a.price) - toNumberPrice(b.price));
+    else if (sortBy === 'price_desc') sorted.sort((a, b) => toNumberPrice(b.price) - toNumberPrice(a.price));
     return sorted;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy]);
+  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy, availableItems, availableRestaurants]);
 
   const filteredRestaurants = useMemo(() => {
     let list = availableRestaurants.filter((r) => {
@@ -171,65 +276,57 @@ export default function ExploreHomeScreen({
         selectedCuisine.some((c) => {
           const cl = String(c).toLowerCase();
           return (
-            cl === String(r.cuisine).toLowerCase() ||
-            r.cuisines.map((cc) => String(cc).toLowerCase()).includes(cl
-            )
+            cl === String(r.cuisine || '').toLowerCase() ||
+            (r.cuisines || []).map((cc) => String(cc).toLowerCase()).includes(cl)
           );
         });
+
       const moodMatch =
         selectedMood.length === 0 ||
         selectedMood.every((m) =>
-          r.ambience
+          (r.ambience || [])
             .map((mm) => String(mm).toLowerCase().replace(/ /g, ''))
             .includes(String(m).toLowerCase().replace(/ /g, ''))
         );
+
       const dietMatch =
         selectedDiet.length === 0 ||
         availableItems.some(
           (i) =>
             i.restaurant === r.name &&
-            selectedDiet
-              .map((d) => String(d).toLowerCase())
-              .includes(String(i.type).toLowerCase())
+            selectedDiet.map((d) => String(d).toLowerCase()).includes(String(i.type).toLowerCase())
         );
+
       const priceMatch =
         selectedPrice.length === 0
           ? true
           : availableItems.some((i) => {
               if (i.restaurant !== r.name) return false;
-              const p = parseInt(String(i.price).replace('RM', ''));
+              const p = toNumberPrice(i.price);
               return selectedPrice.some((range) => {
                 switch (range) {
-                  case 'RM0-RM10':
-                    return p <= 10;
-                  case 'RM11-RM20':
-                    return p >= 11 && p <= 20;
-                  case 'RM21-RM30':
-                    return p >= 21 && p <= 30;
-                  case 'RM31+':
-                    return p >= 31;
-                  default:
-                    return true;
+                  case 'RM0-RM10': return p <= 10;
+                  case 'RM11-RM20': return p >= 11 && p <= 20;
+                  case 'RM21-RM30': return p >= 21 && p <= 30;
+                  case 'RM31+':     return p >= 31;
+                  default:          return true;
                 }
               });
             });
+
       return cuisineMatch && moodMatch && dietMatch && priceMatch;
     });
 
-    if (sortBy === 'rating_desc')
-      list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc')
-      list = [...list].sort(
-        (a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0)
-      );
-    else if (sortBy === 'price_desc')
-      list = [...list].sort(
-        (a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0)
-      );
+    if (sortBy === 'rating_desc') list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    else if (sortBy === 'price_asc') list = [...list].sort(
+      (a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0)
+    );
+    else if (sortBy === 'price_desc') list = [...list].sort(
+      (a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0)
+    );
     return list;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy]);
+  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy, availableRestaurants, availableItems]);
 
-  // Top 4 + "Show all" CTA card as the last item (only if there are more than 4)
   const topRestaurants = useMemo(() => filteredRestaurants.slice(0, 4), [filteredRestaurants]);
   const restaurantsWithCTA = useMemo(() => {
     if (filteredRestaurants.length > 4) {
@@ -251,13 +348,29 @@ export default function ExploreHomeScreen({
       navigation.navigate('AllRestaurants', { restaurants: filteredRestaurants });
     }
   };
-
   const handleShowAllDishes = () => {
     if (filteredItems.length) {
       navigation.navigate('AllDishes', { items: filteredItems });
     }
   };
 
+  // simple loading/error screens
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFF5ED', alignItems: 'center', justifyContent: 'center' }}>
+        <Text>Loading…</Text>
+      </View>
+    );
+  }
+  if (loadError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFF5ED', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Text style={{ color: 'red', textAlign: 'center' }}>{loadError}</Text>
+      </View>
+    );
+  }
+
+  // ------------------- UI (unchanged) -------------------
   return (
     <View style={{ flex: 1, backgroundColor: '#FFF5ED', paddingTop: 0 }}>
       <StatusBar backgroundColor="#FF4D00" barStyle="light-content" />
@@ -275,7 +388,7 @@ export default function ExploreHomeScreen({
             </TouchableOpacity>
           </View>
 
-          {/* Search bar styled like the screenshot */}
+          {/* Search bar */}
           <View style={styles.searchField}>
             <TextInput
               placeholder="Search..."
@@ -347,9 +460,7 @@ export default function ExploreHomeScreen({
               onPress={() => setSortBy(opt.key)}
               style={[styles.sortTab, sortBy === opt.key && styles.sortTabActive]}
             >
-              <Text
-                style={[styles.sortTabText, sortBy === opt.key && styles.sortTabTextActive]}
-              >
+              <Text style={[styles.sortTabText, sortBy === opt.key && styles.sortTabTextActive]}>
                 {opt.label}
               </Text>
             </TouchableOpacity>
@@ -360,7 +471,12 @@ export default function ExploreHomeScreen({
         {/* Restaurants */}
         <SectionTitle title="Recommended Restaurants" />
         <FlatList
-          data={restaurantsWithCTA}
+          data={(() => {
+            const tr = filteredRestaurants.slice(0, 4);
+            return filteredRestaurants.length > 4
+              ? [...tr, { id: '__show_all_restaurants__', _cta: true }]
+              : tr;
+          })()}
           keyExtractor={(r) => r.id}
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -396,7 +512,12 @@ export default function ExploreHomeScreen({
         {/* Dishes */}
         <SectionTitle title="Recommended Dishes" style={{ marginTop: 24 }} />
         <FlatList
-          data={itemsWithCTA}
+          data={(() => {
+            const ti = filteredItems.slice(0, 4);
+            return filteredItems.length > 4
+              ? [...ti, { id: '__show_all_items__', _cta: true }]
+              : ti;
+          })()}
           keyExtractor={(i) => i.id}
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -450,193 +571,54 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 6,
   },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  headerSubtitle: { color: '#fff', opacity: 0.95, fontSize: 15, flexShrink: 1, paddingRight: 10 },
+  editIconHeader: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.85)', backgroundColor: 'rgba(255,255,255,0.15)' },
 
-  /* tagline + edit icon */
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  headerSubtitle: {
-    color: '#fff',
-    opacity: 0.95,
-    fontSize: 15,
-    flexShrink: 1,
-    paddingRight: 10,
-  },
-  editIconHeader: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.85)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
+  searchField: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#d8d4d4', paddingHorizontal: 10, height: 40 },
+  searchInput: { flex: 1, fontSize: 15, color: '#333', paddingVertical: 6 },
+  searchDivider: { height: '70%', width: 1, backgroundColor: '#d8d4d4', marginHorizontal: 8 },
+  searchIconButton: { padding: 6, borderRadius: 12 },
+  clearIconButton: { padding: 6, borderRadius: 12, marginLeft: 4 },
+  suggestionsDropdown: { marginTop: 8, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#FFE8D2', shadowColor: '#FF4D00', shadowOpacity: 0.08, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10, elevation: 3 },
+  suggestionItem: { paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#FFE8D2' },
+  suggestionItemLast: { borderBottomWidth: 0 },
+  suggestionLabel: { fontSize: 15, fontWeight: '700', color: '#3C1E12' },
+  suggestionMeta: { marginTop: 2, color: '#6B4A3F', fontSize: 12 },
+  suggestionsEmpty: { paddingVertical: 14, paddingHorizontal: 14 },
+  suggestionsEmptyText: { color: '#6B4A3F', fontSize: 13 },
 
-  /* search like screenshot: white box, right divider, search icon */
-  searchField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#d8d4d4',
-    paddingHorizontal: 10,
-    height: 40,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#333',
-    paddingVertical: 6,
-  },
-  searchDivider: {
-    height: '70%',
-    width: 1,
-    backgroundColor: '#d8d4d4',
-    marginHorizontal: 8,
-  },
-  searchIconButton: {
-    padding: 6,
-    borderRadius: 12,
-  },
-  clearIconButton: {
-    padding: 6,
-    borderRadius: 12,
-    marginLeft: 4,
-  },
-  suggestionsDropdown: {
-    marginTop: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FFE8D2',
-    shadowColor: '#FF4D00',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  suggestionItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#FFE8D2',
-  },
-  suggestionItemLast: {
-    borderBottomWidth: 0,
-  },
-  suggestionLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#3C1E12',
-  },
-  suggestionMeta: {
-    marginTop: 2,
-    color: '#6B4A3F',
-    fontSize: 12,
-  },
-  suggestionsEmpty: {
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-  },
-  suggestionsEmptyText: {
-    color: '#6B4A3F',
-    fontSize: 13,
-  },
-
-  sortRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-  },
-  sortTab: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: '#ffe3c6ff',
-    marginRight: 8,
-  },
+  sortRow: { flexDirection: 'row', flexWrap: 'wrap', padding: 16 },
+  sortTab: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: '#ffe3c6ff', marginRight: 8 },
   sortTabActive: { backgroundColor: '#FF4D00' },
   sortTabText: { color: '#333', fontWeight: '600', fontSize: 13 },
   sortTabTextActive: { color: '#fff' },
 
-  restaurantCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: 14,
-    width: 260,
-    marginRight: 14,
-    elevation: 3,
-    borderColor: '#FFE8D2',
-    borderWidth: 1,
-  },
+  restaurantCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 14, width: 260, marginRight: 14, elevation: 3, borderColor: '#FFE8D2', borderWidth: 1 },
   restaurantName: { fontWeight: 'bold', fontSize: 18, color: '#000' },
 
-  itemCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 18,
-    padding: 14,
-    width: 240,
-    marginRight: 14,
-    elevation: 3,
-    borderColor: '#FFE8D2',
-    borderWidth: 1,
-  },
+  itemCard: { backgroundColor: '#FFF', borderRadius: 18, padding: 14, width: 240, marginRight: 14, elevation: 3, borderColor: '#FFE8D2', borderWidth: 1 },
   itemName: { fontWeight: 'bold', fontSize: 18, color: '#000' },
   itemTags: { color: '#666', fontSize: 14 },
   badgeRow: { flexDirection: 'row', marginTop: 6 },
 
-  /* "Show all" CTA cards */
-  showAllCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 14,
-    padding: 10,
-    marginRight: 14,
-    elevation: 3,
-    borderColor: '#FF4D00',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-    flexDirection: 'row',
-  },
+  showAllCard: { backgroundColor: '#FFF', borderRadius: 14, padding: 10, marginRight: 14, elevation: 3, borderColor: '#FF4D00', borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', gap: 4, flexDirection: 'row' },
   showAllCardRestaurant: { width: 130 },
   showAllCardItem: { width: 120 },
-  showAllCardText: {
-    color: '#FF4D00',
-    fontWeight: '700',
-  },
+  showAllCardText: { color: '#FF4D00', fontWeight: '700' },
 
-  divider: {
-    height: 1,
-    backgroundColor: '#FFC299',
-    marginHorizontal: 20,
-    marginVertical: 10,
-    borderRadius: 2,
-  },
+  divider: { height: 1, backgroundColor: '#FFC299', marginHorizontal: 20, marginVertical: 10, borderRadius: 2 },
 });
 
 function SectionTitle({ title, right, style }) {
   return (
     <View
       style={[
-        {
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginHorizontal: 16,
-          marginVertical: 12,
-        },
+        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 16, marginVertical: 12 },
         style,
       ]}
     >
-      <Text style={{ fontSize: 20, fontWeight: '800', color: '#FF4D00' }}>
-        {title}
-      </Text>
-      {/* right is no longer used for "Show all" here, but kept for flexibility */}
+      <Text style={{ fontSize: 20, fontWeight: '800', color: '#FF4D00' }}>{title}</Text>
       {typeof right === 'string' || typeof right === 'number' ? (
         <Text style={{ color: '#6b7280' }}>{right}</Text>
       ) : (
@@ -648,15 +630,7 @@ function SectionTitle({ title, right, style }) {
 
 function Badge({ text, color = '#e5e7eb' }) {
   return (
-    <View
-      style={{
-        backgroundColor: color,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-        marginRight: 8,
-      }}
-    >
+    <View style={{ backgroundColor: color, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
       <Text style={{ fontSize: 12, color: '#111827' }}>{text}</Text>
     </View>
   );
