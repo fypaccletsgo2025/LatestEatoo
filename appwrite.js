@@ -1,5 +1,5 @@
 // appwrite.js
-import { Client, Databases } from 'appwrite';
+import { Client, Account, Databases } from 'appwrite';
 
 /** @typedef {{ name: string, location?: string, cuisines?: string[], ambience?: string[], rating?: number }} RestaurantDoc */
 
@@ -15,4 +15,15 @@ export const COL = { restaurants: 'restaurants', menus: 'menus', items: 'items',
 export async function listRestaurants() {
   const res = await db.listDocuments(DB_ID, COL.restaurants);
   return res.documents;
+}
+
+export const account = new Account(client);
+
+// Call this once on app boot:
+export async function ensureSession() {
+  try {
+    await account.get(); // already signed in
+  } catch {
+    await account.createAnonymousSession(); // fallback
+  }
 }

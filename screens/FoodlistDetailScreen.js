@@ -1,5 +1,5 @@
 // screens/FoodlistDetailScreen.js
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,20 @@ import {
   TextInput,
   Modal,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { availableItems, mockUsers } from '../data/mockData';
 import BackButton from '../components/BackButton';
+
+// ✅ Appwrite client
+import { db, DB_ID, COL } from '../appwrite';
+import { Query } from 'appwrite';
+import {
+  getFoodlists,
+  updateFoodlist as updateFoodlistStore,
+  removeFoodlist as removeFoodlistFromStore,
+} from '../state/foodlistsStore';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -32,27 +41,114 @@ const BRAND = {
   overlay: 'rgba(255,255,255,0.2)',
 };
 
+const toRM = (n) =>
+  n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`;
+
 const parsePriceToNumber = (price) => {
   if (!price) return null;
   const numeric = parseFloat(String(price).replace(/[^0-9.]/g, ''));
   return Number.isFinite(numeric) ? numeric : null;
 };
 
-export default function FoodlistDetailScreen({ route, navigation }) {
-  const { foodlist, setFoodlists } = route.params;
-  const insets = useSafeAreaInsets();
+const EMPTY_FOODLIST = {
+  id: null,
+  $id: null,
+  name: '',
+  description: '',
+  items: [],
+  itemIds: [],
+  members: [],
+};
 
-  const [currentList, setCurrentList] = useState({
-    ...foodlist,
-    items: (foodlist?.items ?? []).filter(Boolean),
-    members: Array.isArray(foodlist?.members) ? [...foodlist.members] : [],
-  });
+const normalizeFoodlistDoc = (raw) => {
+  if (!raw) return { ...EMPTY_FOODLIST };
+  const items = Array.isArray(raw.items) ? [...raw.items] : [];
+  const itemIds = Array.isArray(raw.itemIds) && raw.itemIds.length
+    ? raw.itemIds.filter(Boolean)
+    : items.map((item) => item && item.id).filter(Boolean);
+  const members = Array.isArray(raw.members) ? [...raw.members] : [];
+  const id = raw.id ?? raw.$id ?? null;
+  return {
+    ...raw,
+    id,
+    items,
+    itemIds,
+    members,
+  };
+};
+
+export default function FoodlistDetailScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
+  const { foodlist, foodlistId, setFoodlists } = route.params ?? {};
+
+  const initialDoc = useMemo(() => {
+    if (foodlist) return foodlist;
+    if (foodlistId) {
+      const local = getFoodlists().find(
+        (f) => f.id === foodlistId || f.$id === foodlistId
+      );
+      if (local) return local;
+    }
+    return null;
+  }, [foodlist, foodlistId]);
+
+  const [currentList, setCurrentList] = useState(() => normalizeFoodlistDoc(initialDoc));
+  const [loadingDoc, setLoadingDoc] = useState(!initialDoc && Boolean(foodlistId));
+
+  useEffect(() => {
+    if (foodlist) {
+      setCurrentList(normalizeFoodlistDoc(foodlist));
+      setLoadingDoc(false);
+      return;
+    }
+
+    if (initialDoc) {
+      setCurrentList(normalizeFoodlistDoc(initialDoc));
+      setLoadingDoc(false);
+      return;
+    }
+
+    if (!foodlistId) {
+      setLoadingDoc(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingDoc(true);
+    (async () => {
+      try {
+        const doc = await db.getDocument(DB_ID, COL.foodlists, foodlistId);
+        if (!cancelled) {
+          setCurrentList(normalizeFoodlistDoc(doc));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn('Failed to load foodlist', e?.message || e);
+        }
+      } finally {
+        if (!cancelled) setLoadingDoc(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [foodlist, foodlistId, initialDoc]);
+
+  // Remote items (all items so user can add)
+  const [allItems, setAllItems] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [loadingAll, setLoadingAll] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [addingItems, setAddingItems] = useState(false);
   const [selectedToAdd, setSelectedToAdd] = useState([]);
   const [selectedToRemove, setSelectedToRemove] = useState([]);
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteQuery, setInviteQuery] = useState('');
   const [contributorsOpen, setContributorsOpen] = useState(false);
+
   const [toastMessage, setToastMessage] = useState('');
   const toastTimerRef = useRef(null);
 
@@ -62,12 +158,113 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     toastTimerRef.current = setTimeout(() => setToastMessage(''), 1800);
   };
 
-  // Items available to add
-  const itemsAvailableToAdd = useMemo(
-    () => availableItems.filter((it) => !currentList.items.find((i) => i.id === it.id)),
-    [currentList.items]
-  );
+  const syncLocalFoodlists = useCallback((nextList) => {
+    const normalized = normalizeFoodlistDoc(nextList);
+    if (normalized.id) {
+      updateFoodlistStore(normalized);
+    }
+    if (setFoodlists) {
+      const targetId = normalized.$id || normalized.id;
+      setFoodlists((prev) =>
+        prev.map((f) => {
+          const fid = f.$id || f.id;
+          return fid === targetId ? normalized : f;
+        })
+      );
+    }
+  }, [setFoodlists]);
 
+  const removeLocalFoodlist = useCallback((listId) => {
+    if (listId) {
+      removeFoodlistFromStore(listId);
+    }
+    if (setFoodlists) {
+      setFoodlists((prev) =>
+        prev.filter((f) => {
+          const fid = f.$id || f.id;
+          return fid !== listId;
+        })
+      );
+    }
+  }, [setFoodlists]);
+
+  // -------- Fetch helpers ----------
+  const normalizeItemDoc = useCallback((it) => ({
+    id: it.$id,
+    name: it.name,
+    type: it.type || 'other',
+    price: toRM(it.priceRM),
+    cuisine: it.cuisine || '',
+    rating: it.rating ?? null,
+    restaurant: it.restaurantName || '', // optional if you stored it
+    location: it.restaurantLocation || '', // optional if you stored it
+    tags: Array.isArray(it.tags) ? it.tags : [],
+    description: it.description || '',
+    restaurantId: it.restaurantId || null,
+    menuId: it.menuId || null,
+  }), []);
+
+  // Load items inside this list (by itemIds)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadListItems() {
+      try {
+        setLoadingList(true);
+        const itemIds = Array.isArray(currentList?.itemIds)
+          ? currentList.itemIds.filter(Boolean)
+          : [];
+        if (itemIds.length === 0) {
+          if (!cancelled) {
+            setCurrentList((prev) => ({ ...prev, items: [] }));
+            setLoadingList(false);
+          }
+          return;
+        }
+
+        // Appwrite supports Query.equal with array ("IN"-like semantics for IDs)
+        // If you have >100 IDs, you might need to chunk; simple path here
+        const res = await db.listDocuments(DB_ID, COL.items, [Query.equal('$id', itemIds)]);
+        const items = (res.documents || []).map(normalizeItemDoc);
+        if (!cancelled) {
+          setCurrentList((prev) => ({ ...prev, items }));
+        }
+      } catch (e) {
+        console.warn('Failed to load list items:', e?.message || e);
+      } finally {
+        if (!cancelled) setLoadingList(false);
+      }
+    }
+    loadListItems();
+    return () => { cancelled = true; };
+  }, [currentList.itemIds, normalizeItemDoc]);
+
+  // Load all items user can add
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAllItems() {
+      try {
+        setLoadingAll(true);
+        // basic: get first 100; you can paginate if needed
+        const res = await db.listDocuments(DB_ID, COL.items, [Query.limit(100)]);
+        const items = (res.documents || []).map(normalizeItemDoc);
+        if (!cancelled) setAllItems(items);
+      } catch (e) {
+        console.warn('Failed to load all items:', e?.message || e);
+      } finally {
+        if (!cancelled) setLoadingAll(false);
+      }
+    }
+    loadAllItems();
+    return () => { cancelled = true; };
+  }, [normalizeItemDoc]);
+
+  // Items available to add = allItems minus ones already in list
+  const itemsAvailableToAdd = useMemo(() => {
+    const existingIds = new Set((currentList.items || []).map((i) => i.id));
+    return allItems.filter((it) => !existingIds.has(it.id));
+  }, [allItems, currentList.items]);
+
+  // Price stats for current list
   const priceStats = useMemo(() => {
     const items = Array.isArray(currentList.items) ? currentList.items : [];
     let total = 0;
@@ -88,7 +285,7 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     };
   }, [currentList.items]);
 
-  // Toggle selections
+  // Selection toggles
   const toggleAdd = (item) => {
     setSelectedToAdd((prev) =>
       prev.find((i) => i.id === item.id) ? prev.filter((i) => i.id !== item.id) : [...prev, item]
@@ -101,7 +298,15 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     );
   };
 
-  // Confirm actions
+  // ---- Persist to Appwrite: helpers ----
+  const updateFoodlistItemIds = async (newIds) => {
+    const targetId = currentList.$id;
+    if (!targetId) return;
+    await db.updateDocument(DB_ID, COL.foodlists, targetId, {
+      itemIds: newIds,
+    });
+  };
+
   const confirmRemove = () => {
     if (selectedToRemove.length === 0) return;
     Alert.alert(
@@ -112,33 +317,55 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            const updatedItems = currentList.items.filter(
-              (item) => !selectedToRemove.find((i) => i.id === item.id)
-            );
-            const updatedList = { ...currentList, items: updatedItems };
-            setCurrentList(updatedList);
-            setFoodlists((prev) => prev.map((f) => (f.id === currentList.id ? updatedList : f)));
-            setSelectedToRemove([]);
-            showToast('Removed');
+          onPress: async () => {
+            try {
+              setSaving(true);
+              const updatedItems = currentList.items.filter(
+                (item) => !selectedToRemove.find((i) => i.id === item.id)
+              );
+              const updatedIds = updatedItems.map((i) => i.id);
+
+              await updateFoodlistItemIds(updatedIds);
+
+              const updatedList = { ...currentList, items: updatedItems, itemIds: updatedIds };
+              setCurrentList(updatedList);
+              syncLocalFoodlists(updatedList);
+              setSelectedToRemove([]);
+              showToast('Removed');
+            } catch (e) {
+              Alert.alert('Error', e?.message || 'Failed to update list');
+            } finally {
+              setSaving(false);
+            }
           },
         },
       ]
     );
   };
 
-  const confirmAdd = () => {
+  const confirmAdd = async () => {
     if (selectedToAdd.length === 0) return;
-    const updatedItems = [...currentList.items, ...selectedToAdd];
-    const updatedList = { ...currentList, items: updatedItems };
-    setCurrentList(updatedList);
-    setFoodlists((prev) => prev.map((f) => (f.id === currentList.id ? updatedList : f)));
-    setSelectedToAdd([]);
-    setAddingItems(false);
-    showToast('Added');
+    try {
+      setSaving(true);
+      const updatedItems = [...currentList.items, ...selectedToAdd];
+      const updatedIds = updatedItems.map((i) => i.id);
+
+      await updateFoodlistItemIds(updatedIds);
+
+      const updatedList = { ...currentList, items: updatedItems, itemIds: updatedIds };
+      setCurrentList(updatedList);
+      syncLocalFoodlists(updatedList);
+      setSelectedToAdd([]);
+      setAddingItems(false);
+      showToast('Added');
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Failed to add items');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteList = () => {
+  const deleteList = async () => {
     Alert.alert(
       'Delete Foodlist',
       'This action cannot be undone.',
@@ -147,33 +374,36 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setFoodlists((prev) => prev.filter((f) => f.id !== currentList.id));
-            navigation.goBack();
+          onPress: async () => {
+            try {
+              setSaving(true);
+              const targetId = currentList.$id || currentList.id;
+              if (currentList.$id) {
+                await db.deleteDocument(DB_ID, COL.foodlists, currentList.$id);
+              }
+              removeLocalFoodlist(targetId);
+              navigation.goBack();
+            } catch (e) {
+              Alert.alert('Error', e?.message || 'Failed to delete list');
+            } finally {
+              setSaving(false);
+            }
           },
         },
       ]
     );
   };
 
-  // Header
+  // ---- Header ----
   const Header = () => {
     const heroStats = [
       { label: 'Items', value: String(priceStats.total) },
-      {
-        label: 'Average price',
-        value: priceStats.avg ? `RM${priceStats.avg}` : '--',
-      },
-      {
-        label: 'Cheapest',
-        value: priceStats.cheapest ? `RM${priceStats.cheapest}` : '--',
-      },
+      { label: 'Average price', value: priceStats.avg ? `RM${priceStats.avg}` : '--' },
+      { label: 'Cheapest', value: priceStats.cheapest ? `RM${priceStats.cheapest}` : '--' },
     ];
 
     const collaborators = currentList.members?.length || 0;
-    const heroMetaParts = [
-      `${priceStats.total} item${priceStats.total === 1 ? '' : 's'}`,
-    ];
+    const heroMetaParts = [`${priceStats.total} item${priceStats.total === 1 ? '' : 's'}`];
     if (collaborators > 0) {
       heroMetaParts.push(`${collaborators} collaborator${collaborators === 1 ? '' : 's'}`);
     }
@@ -222,9 +452,12 @@ export default function FoodlistDetailScreen({ route, navigation }) {
               onPress={() => setAddingItems(true)}
               accessibilityRole="button"
               accessibilityLabel="Add items"
+              disabled={loadingAll}
             >
               <Ionicons name="add-circle" size={16} color={BRAND.primary} />
-              <Text style={styles.heroActionPrimaryText}>Add items</Text>
+              <Text style={styles.heroActionPrimaryText}>
+                {loadingAll ? 'Loading…' : 'Add items'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.heroActionSecondary}
@@ -246,7 +479,7 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     const selected = !!selectedToRemove.find((i) => i.id === item.id);
     return (
       <TouchableOpacity
-        onPress={() => navigation.navigate('FoodItemDetail', { item })}
+        onPress={() => navigation.navigate('FoodItemDetail', { itemId: item.id })}
         onLongPress={() => toggleRemove(item)}
         style={[styles.card, selected && styles.cardSelected]}
       >
@@ -302,15 +535,25 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     );
   };
 
+  // Invite: local-only (schema doesn’t have members)
   const InviteModal = () => (
-    <Modal visible={inviteOpen} transparent animationType="slide" onRequestClose={() => setInviteOpen(false)}>
+    <Modal
+      visible={inviteOpen}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setInviteOpen(false)}
+    >
       <View style={styles.modalOverlay}>
-        <View style={styles.bottomSheet}>
+        <View className="sheet" style={styles.bottomSheet}>
           <Text style={styles.sheetTitle}>Invite collaborators</Text>
+          <Text style={{ color: BRAND.inkMuted, marginTop: 6 }}>
+            Your backend doesn’t have a <Text style={{ fontWeight: '700' }}>members</Text> field yet,
+            so invites are local-only. Add a <Text style={{ fontWeight: '700' }}>members (array)</Text> string attribute in the <Text style={{ fontWeight: '700' }}>foodlists</Text> collection to persist.
+          </Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={16} color={BRAND.inkMuted} />
             <TextInput
-              placeholder="Search username"
+              placeholder="Type a name and press Invite"
               placeholderTextColor={BRAND.inkMuted}
               style={styles.searchInput}
               value={inviteQuery}
@@ -324,37 +567,27 @@ export default function FoodlistDetailScreen({ route, navigation }) {
             )}
           </View>
 
-          <FlatList
-            data={mockUsers.filter(
-              (u) =>
-                !currentList.members?.some((m) => String(m).toLowerCase() === u.name.toLowerCase()) &&
-                u.name.toLowerCase().includes(inviteQuery.toLowerCase())
-            )}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => {
-                  const updated = { ...currentList, members: [...(currentList.members || []), item.name] };
-                  setCurrentList(updated);
-                  setFoodlists((prev) => prev.map((f) => (f.id === currentList.id ? updated : f)));
-                  showToast('Invitation sent');
-                }}
-                style={styles.listRow}
-              >
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {item.name.split(/\s+/).map((p) => p[0]?.toUpperCase()).slice(0, 2).join('')}
-                  </Text>
-                </View>
-                <Text style={styles.rowText}>{item.name}</Text>
-                <Text style={[styles.rowAction, { color: BRAND.success }]}>Invite</Text>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={<Text style={styles.emptyHint}>No users found</Text>}
-            style={{ marginTop: 6 }}
-          />
+          <TouchableOpacity
+            onPress={() => {
+              const v = inviteQuery.trim();
+              if (!v) return;
+              const updated = { ...currentList, members: [...(currentList.members || []), v] };
+              setCurrentList(updated);
+              // Not persisted: reflect in local caches so other screens stay in sync
+              syncLocalFoodlists(updated);
+              setInviteQuery('');
+              showToast('Invitation added (local)');
+            }}
+            style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}
+          >
+            <Ionicons name="send" size={18} color="#fff" />
+            <Text style={[styles.primaryBtnText, { marginLeft: 8 }]}>Invite</Text>
+          </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setInviteOpen(false)} style={[styles.primaryBtn, { backgroundColor: BRAND.slate }]}>
+          <TouchableOpacity
+            onPress={() => setInviteOpen(false)}
+            style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}
+          >
             <Text style={styles.primaryBtnText}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -363,7 +596,12 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   );
 
   const ContributorsModal = () => (
-    <Modal visible={contributorsOpen} transparent animationType="fade" onRequestClose={() => setContributorsOpen(false)}>
+    <Modal
+      visible={contributorsOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setContributorsOpen(false)}
+    >
       <View style={[styles.modalOverlay, { justifyContent: 'center', padding: 24 }]}>
         <View style={styles.centerSheet}>
           <Text style={styles.sheetTitle}>Contributors</Text>
@@ -374,7 +612,11 @@ export default function FoodlistDetailScreen({ route, navigation }) {
               <View style={styles.listRow}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
-                    {item.name.split(/\s+/).map((p) => p[0]?.toUpperCase()).slice(0, 2).join('')}
+                    {item.name
+                      .split(/\s+/)
+                      .map((p) => p[0]?.toUpperCase())
+                      .slice(0, 2)
+                      .join('')}
                   </Text>
                 </View>
                 <Text style={styles.rowText}>{item.name}</Text>
@@ -383,7 +625,10 @@ export default function FoodlistDetailScreen({ route, navigation }) {
             ListEmptyComponent={null}
             style={{ marginTop: 6 }}
           />
-          <TouchableOpacity onPress={() => setContributorsOpen(false)} style={[styles.primaryBtn, { backgroundColor: BRAND.slate }]}>
+          <TouchableOpacity
+            onPress={() => setContributorsOpen(false)}
+            style={[styles.primaryBtn, { backgroundColor: BRAND.slate }]}
+          >
             <Text style={styles.primaryBtnText}>Close</Text>
           </TouchableOpacity>
         </View>
@@ -392,7 +637,13 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   );
 
   const Toast = () => (
-    <Modal visible={!!toastMessage} transparent animationType="fade" statusBarTranslucent presentationStyle="overFullScreen">
+    <Modal
+      visible={!!toastMessage}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      presentationStyle="overFullScreen"
+    >
       <View pointerEvents="none" style={styles.toastWrap}>
         <View style={styles.toastBox}>
           <Text style={{ color: '#fff', fontWeight: '700' }}>{toastMessage}</Text>
@@ -404,30 +655,46 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   const hasRemoveSelection = selectedToRemove.length > 0;
   const hasAddSelection = selectedToAdd.length > 0;
 
+  const dataToRender = addingItems ? itemsAvailableToAdd : currentList.items;
+  const isLoadingListOrAll = loadingDoc || (addingItems ? loadingAll : loadingList);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <FlatList
-        data={addingItems ? itemsAvailableToAdd : currentList.items}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={<Header />}
-        ListHeaderComponentStyle={{ paddingBottom: 16 }}
-        renderItem={addingItems ? renderAddItem : renderItem}
-        contentContainerStyle={{ paddingBottom: 160 }}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        ListEmptyComponent={
-          <Text style={styles.emptyHint}>
-            {addingItems ? 'No items available to add' : 'No items in this list yet'}
+      {isLoadingListOrAll ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="small" color={BRAND.primary} />
+          <Text style={{ marginTop: 8, color: BRAND.inkMuted }}>
+            {addingItems ? 'Loading items…' : 'Loading list…'}
           </Text>
-        }
-        showsVerticalScrollIndicator={false}
-      />
+        </View>
+      ) : (
+        <FlatList
+          data={dataToRender}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={<Header />}
+          ListHeaderComponentStyle={{ paddingBottom: 16 }}
+          renderItem={addingItems ? renderAddItem : renderItem}
+          contentContainerStyle={{ paddingBottom: 160 }}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ListEmptyComponent={
+            <Text style={styles.emptyHint}>
+              {addingItems ? 'No items available to add' : 'No items in this list yet'}
+            </Text>
+          }
+          showsVerticalScrollIndicator={false}
+        />
+      )}
 
       {/* Sticky bottom actions with safe frame */}
       <View style={[styles.bottomBar, { paddingBottom: 12 + insets.bottom }]}>
         {!addingItems ? (
           <>
             {hasRemoveSelection ? (
-              <TouchableOpacity onPress={confirmRemove} style={[styles.primaryBtn, { backgroundColor: BRAND.warn, flex: 1 }]}>
+              <TouchableOpacity
+                onPress={confirmRemove}
+                disabled={saving}
+                style={[styles.primaryBtn, { backgroundColor: BRAND.warn, flex: 1, opacity: saving ? 0.6 : 1 }]}
+              >
                 <Ionicons name="trash" size={18} color="#fff" />
                 <Text style={styles.primaryBtnText}>
                   Remove {selectedToRemove.length > 1 ? 'Selected Items' : 'Selected'}
@@ -437,12 +704,17 @@ export default function FoodlistDetailScreen({ route, navigation }) {
               <>
                 <TouchableOpacity
                   onPress={() => setAddingItems(true)}
-                  style={[styles.primaryBtn, { backgroundColor: BRAND.slate, flex: 1 }]}
+                  disabled={loadingAll}
+                  style={[styles.primaryBtn, { backgroundColor: BRAND.slate, flex: 1, opacity: loadingAll ? 0.6 : 1 }]}
                 >
                   <Ionicons name="add-circle" size={18} color="#fff" />
                   <Text style={styles.primaryBtnText}>Add Items</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={deleteList} style={[styles.primaryBtn, { backgroundColor: BRAND.danger, marginLeft: 12 }]}>
+                <TouchableOpacity
+                  onPress={deleteList}
+                  disabled={saving}
+                  style={[styles.primaryBtn, { backgroundColor: BRAND.danger, marginLeft: 12, opacity: saving ? 0.6 : 1 }]}
+                >
                   <Ionicons name="trash" size={18} color="#fff" />
                 </TouchableOpacity>
               </>
@@ -455,16 +727,28 @@ export default function FoodlistDetailScreen({ route, navigation }) {
             </View>
             <TouchableOpacity
               onPress={confirmAdd}
-              disabled={!hasAddSelection}
+              disabled={!hasAddSelection || saving}
               style={[
                 styles.primaryBtn,
-                { backgroundColor: hasAddSelection ? BRAND.primary : BRAND.accent, flex: 1, marginLeft: 12 },
+                {
+                  backgroundColor: hasAddSelection ? BRAND.primary : BRAND.accent,
+                  flex: 1,
+                  marginLeft: 12,
+                  opacity: saving ? 0.6 : 1,
+                },
               ]}
             >
               <Ionicons name="checkmark-circle" size={18} color="#fff" />
               <Text style={styles.primaryBtnText}>Confirm Add</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setAddingItems(false); setSelectedToAdd([]); }} style={[styles.primaryBtn, { backgroundColor: BRAND.gray, marginLeft: 12 }]}>
+            <TouchableOpacity
+              onPress={() => {
+                setAddingItems(false);
+                setSelectedToAdd([]);
+              }}
+              disabled={saving}
+              style={[styles.primaryBtn, { backgroundColor: BRAND.gray, marginLeft: 12, opacity: saving ? 0.6 : 1 }]}
+            >
               <Ionicons name="close" size={18} color="#fff" />
             </TouchableOpacity>
           </>
@@ -474,13 +758,12 @@ export default function FoodlistDetailScreen({ route, navigation }) {
       <InviteModal />
       <ContributorsModal />
       <Toast />
-  </SafeAreaView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: BRAND.bg },
-  container: { flex: 1, backgroundColor: BRAND.bg },
   headerWrap: {
     paddingBottom: 24,
     backgroundColor: BRAND.primary,
@@ -630,7 +913,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     elevation: 8,
   },
-  summary: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   countBadge: {
     width: 28,
     height: 28,
@@ -643,7 +925,6 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   countText: { fontWeight: '800', color: BRAND.primary },
-  summaryText: { fontWeight: '700', color: BRAND.ink, fontSize: 14 },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -709,9 +990,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontWeight: '700', color: BRAND.primary },
   rowText: { flex: 1, color: BRAND.ink, fontSize: 15 },
-  rowAction: { fontWeight: '700' },
   emptyHint: { textAlign: 'center', color: BRAND.inkMuted, marginTop: 20 },
   toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 100, alignItems: 'center' },
   toastBox: { backgroundColor: 'rgba(17,24,39,0.92)', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12 },
 });
-

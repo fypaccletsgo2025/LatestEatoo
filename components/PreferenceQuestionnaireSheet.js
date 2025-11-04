@@ -1,9 +1,10 @@
 // components/PreferenceQuestionnaireSheet.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import RightSheet from './RightSheet';
 import { PreferenceQuestionnaire } from '../screens/PreferenceQuestionnaire';
+import { getPreferenceSelections } from '../state/preferenceSelectionsStore';
 
 export default function PreferenceQuestionnaireSheet({
   open,
@@ -11,14 +12,18 @@ export default function PreferenceQuestionnaireSheet({
   onApply,
   initialSelections = { selectedDiet: [], selectedCuisine: [], selectedMood: [], selectedPrice: [] },
 }) {
-  const [sel, setSel] = useState(initialSelections);
+  const resolvedInitial = useMemo(
+    () => initialSelections || getPreferenceSelections(),
+    [initialSelections]
+  );
+  const [sel, setSel] = useState(resolvedInitial);
 
   useEffect(() => {
     if (open) {
       // Reset to initial when opening
-      setSel(initialSelections);
+      setSel(resolvedInitial);
     }
-  }, [open]);
+  }, [open, resolvedInitial]);
 
   return (
     <RightSheet open={open} onClose={onClose} widthPct={0.92} testID="PreferenceQuestionnaireSheet">

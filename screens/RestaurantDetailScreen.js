@@ -19,7 +19,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Platform,
 } from 'react-native';
 import MapView, { Marker, Polyline as MapPolyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,11 +26,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useRoute, useNavigation } from '@react-navigation/native';
 
-// ✅ Appwrite (frontend client)
+// Appwrite
 import { db, DB_ID, COL } from '../appwrite';
 import { Query } from 'appwrite';
 
-// Local state modules you already have
+// Local state modules (kept)
 import { getUserItemsForRestaurant } from '../state/userMenusStore';
 import {
   isRestaurantSaved,
@@ -40,6 +39,7 @@ import {
 } from '../state/libraryStore';
 import { addUserReview, getUserReviews } from '../state/reviewsStore';
 
+// Location/Styles/UI helpers (kept)
 import {
   MALAYSIA_CENTER,
   STAR,
@@ -64,7 +64,7 @@ import {
   stripHtml,
 } from '../LocationNav/RestaurantDetailScreen.helpers';
 
-// ---- Brand palette (unchanged) ----
+// ---- Brand palette (for inline text colors) ----
 const BRAND = {
   primary: '#FF4D00',
   bg: '#FFF5ED',
@@ -76,7 +76,7 @@ const BRAND = {
   accent: '#FFD4AF',
 };
 
-// ---- Maps config (unchanged) ----
+// ---- Google Maps API key resolution ----
 const GOOGLE_MAPS_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ??
   Constants.expoConfig?.extra?.googleMapsApiKey ??
@@ -84,6 +84,7 @@ const GOOGLE_MAPS_API_KEY =
   Constants.manifest?.extra?.googleMapsApiKey ??
   '';
 
+// ---- Map camera config ----
 const NAVIGATION_ZOOM = 17.5;
 const NAVIGATION_PITCH = 60;
 const USER_VERTICAL_TARGET_FRACTION = 0.7;
@@ -134,7 +135,7 @@ const toTitleCase = (value) => {
 const toRM = (n) =>
   n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`;
 
-// Strip any functions from navigation params
+// Avoid functions in navigation params
 function stripFunctions(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   const out = Array.isArray(obj) ? [] : {};
@@ -152,6 +153,7 @@ async function fetchRestaurant(restaurantId) {
   return {
     ...doc,
     cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
+  //  ambience optional in your schema; default to array to keep UI safe:
     ambience: Array.isArray(doc.ambience) ? doc.ambience : [],
   };
 }
@@ -167,7 +169,7 @@ async function fetchItemsForRestaurant(restaurantId) {
     price: toRM(it.priceRM),
     cuisine: it.cuisine || '',
     rating: it.rating ?? null,
-    restaurant: '', // fill from restaurant doc later
+    restaurant: '', // filled after we know restaurant doc
     location: '',
     tags: Array.isArray(it.tags) ? it.tags : [],
     menuId: it.menuId || null,
@@ -195,13 +197,17 @@ async function fetchReviewsForRestaurant(restaurantId) {
 export default function RestaurantDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
 
   // Accept either { restaurantId } or { restaurant }
   const passedRestaurant = route.params?.restaurant
     ? stripFunctions(route.params.restaurant)
     : null;
   const restaurantId =
-    route.params?.restaurantId || passedRestaurant?.id || passedRestaurant?.$id || null;
+    route.params?.restaurantId ||
+    passedRestaurant?.id ||
+    passedRestaurant?.$id ||
+    null;
 
   // Remote state
   const [restaurant, setRestaurant] = useState(passedRestaurant || null);
@@ -212,7 +218,7 @@ export default function RestaurantDetailScreen() {
   const [loading, setLoading] = useState(!passedRestaurant && !!restaurantId);
   const [error, setError] = useState(null);
 
-  // Saved & local reviews (your existing local stores)
+  // Saved & local reviews (local stores)
   const [saved, setSaved] = useState(
     restaurant ? isRestaurantSaved(restaurant.id || restaurant.$id) : false,
   );
@@ -220,18 +226,17 @@ export default function RestaurantDetailScreen() {
     restaurantId ? getUserReviews(restaurantId) : [],
   );
 
-  // ---- Map/navigation states (unchanged) ----
-  const insets = useSafeAreaInsets();
+  // ---- Map/navigation states ----
   const windowHeight = Dimensions.get('window').height;
   const collapsedSnap = windowHeight * 0.58;
   const expandedSnap = Math.max(insets.top + 60, windowHeight * 0.18);
 
   const sheetTranslateY = useRef(new Animated.Value(collapsedSnap)).current;
-  theDragStart = useRef ? useRef(collapsedSnap) : { current: collapsedSnap }; // guard for hot reloads
   const dragStart = useRef(collapsedSnap);
   const mapRef = useRef(null);
   const locationWatcher = useRef(null);
   const [userLocation, setUserLocation] = useState(null);
+
   const userCoords = useMemo(() => {
     if (!userLocation?.coords) return null;
     const { latitude, longitude } = userLocation.coords;
@@ -321,7 +326,7 @@ export default function RestaurantDetailScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
 
-  // ---- Base coordinate & map region (unchanged) ----
+  // ---- Base coordinate & map region ----
   const baseCoordinate = useMemo(
     () => deriveCoordinate(restaurant || {}),
     [restaurant],
@@ -337,7 +342,7 @@ export default function RestaurantDetailScreen() {
     [baseCoordinate.latitude, baseCoordinate.longitude],
   );
 
-  // ---- Map camera helpers (unchanged) ----
+  // ---- Map camera helpers ----
   const resolveHeading = useCallback((rawHeading) => {
     if (typeof rawHeading === 'number' && !Number.isNaN(rawHeading)) {
       lastHeadingRef.current = rawHeading;
@@ -461,18 +466,18 @@ export default function RestaurantDetailScreen() {
     });
   }, [animateNavigationCamera, baseCoordinate.latitude, baseCoordinate.longitude, userCoords, userLocation]);
 
-  // ---- Directions (unchanged) ----
+  // ---- Directions ----
   const decodeDirections = useCallback((directions) => {
     const leg = directions?.routes?.[0]?.legs?.[0] || null;
     const rawSteps = leg?.steps || [];
-    const parsedSteps = rawSteps.map((step) => ({
-      instruction: stripHtml(step.html_instructions || ''),
-      maneuver: step.maneuver || null,
-      distance: step.distance?.text || null,
-      duration: step.duration?.text || null,
-      endLocation: step.end_location
-        ? { latitude: step.end_location.lat, longitude: step.end_location.lng }
-        : null,
+    const parsedSteps = rawSteps.map((step) => ([
+      stripHtml(step.html_instructions || ''),
+      step.maneuver || null,
+      step.distance?.text || null,
+      step.duration?.text || null,
+      step.end_location ? { latitude: step.end_location.lat, longitude: step.end_location.lng } : null,
+    ])).map(([instruction, maneuver, distance, duration, endLocation]) => ({
+      instruction, maneuver, distance, duration, endLocation,
     }));
 
     const encodedPolyline = directions?.routes?.[0]?.overview_polyline?.points;
@@ -494,13 +499,7 @@ export default function RestaurantDetailScreen() {
       parsedSteps,
       routeCoords,
       summary: leg
-        ? {
-            distanceText,
-            distanceValue,
-            durationText,
-            durationValue,
-            eta: etaMs,
-          }
+        ? { distanceText, distanceValue, durationText, durationValue, eta: etaMs }
         : null,
     };
   }, []);
@@ -665,7 +664,7 @@ export default function RestaurantDetailScreen() {
     clearPreviewRoute();
   }, [clearPreviewRoute]);
 
-  // ---- Location subscription (unchanged) ----
+  // ---- Location subscription ----
   useEffect(() => {
     let isMounted = true;
 
@@ -764,7 +763,7 @@ export default function RestaurantDetailScreen() {
     };
   }, []);
 
-  // Step progress during nav (unchanged)
+  // Step progress during nav
   useEffect(() => {
     if (!navigationActive || !userCoords || !routeSteps.length) return;
 
@@ -783,13 +782,13 @@ export default function RestaurantDetailScreen() {
     }
   }, [navigationActive, userCoords, routeSteps, currentStepIndex, stopNavigation]);
 
-  // Sheet position init (unchanged)
+  // Sheet position init
   useEffect(() => {
     sheetTranslateY.setValue(collapsedSnap);
     dragStart.current = collapsedSnap;
   }, [collapsedSnap, sheetTranslateY]);
 
-  // Sheet drag (unchanged)
+  // Sheet drag
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -819,7 +818,7 @@ export default function RestaurantDetailScreen() {
     [collapsedSnap, expandedSnap, sheetTranslateY],
   );
 
-  // Combine items: ONLY backend + your local user items
+  // Combine items: backend + your local user items
   const combinedItems = useMemo(() => {
     const rid = restaurant?.id || restaurant?.$id || restaurantId;
     const user = rid ? getUserItemsForRestaurant(rid) : [];
@@ -831,68 +830,12 @@ export default function RestaurantDetailScreen() {
     return [...remote, ...user];
   }, [items, restaurant, restaurantId]);
 
-  // Remote + local reviews together (no mocks)
+  // Remote + local reviews together
   const allReviews = useMemo(() => {
     const basic = Array.isArray(remoteReviews) ? remoteReviews : [];
     const local = Array.isArray(userReviews) ? userReviews : [];
     return [...local, ...basic];
   }, [remoteReviews, userReviews]);
-
-  // Derived UI bits
-  const animatedSheetStyle = useMemo(
-    () => [
-      styles.sheetBase,
-      {
-        height: windowHeight + insets.bottom,
-        paddingBottom: insets.bottom + 24,
-        transform: [{ translateY: sheetTranslateY }],
-      },
-    ],
-    [insets.bottom, sheetTranslateY, windowHeight],
-  );
-
-  const thenStep = useMemo(
-    () => routeSteps[currentStepIndex + 1] || null,
-    [routeSteps, currentStepIndex],
-  );
-
-  const displayedPolyline = useMemo(
-    () => (navigationActive ? routePolyline : previewPolyline),
-    [navigationActive, routePolyline, previewPolyline],
-  );
-
-  const previewDistanceDisplay = useMemo(() => {
-    if (!previewSummary) return null;
-    if (previewSummary.distanceText) return previewSummary.distanceText;
-    if (typeof previewSummary.distanceValue === 'number') {
-      return `${(previewSummary.distanceValue / 1000).toFixed(1)} km`;
-    }
-    return null;
-  }, [previewSummary]);
-
-  const previewDurationDisplay = useMemo(
-    () => previewSummary?.durationText ?? null,
-    [previewSummary],
-  );
-
-  const distanceDisplay = useMemo(() => {
-    if (!navSummary) return null;
-    if (navSummary.distanceText) return navSummary.distanceText;
-    if (typeof navSummary.distanceValue === 'number') {
-      return `${(navSummary.distanceValue / 1000).toFixed(1)} km`;
-    }
-    return null;
-  }, [navSummary]);
-
-  const arrivalTime = useMemo(() => {
-    if (!navSummary?.eta) return null;
-    return new Date(navSummary.eta);
-  }, [navSummary]);
-
-  const arrivalDisplay = useMemo(() => {
-    if (!arrivalTime) return null;
-    return arrivalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, [arrivalTime]);
 
   // ---- Loading / error states ----
   if (!passedRestaurant && !restaurantId) {
@@ -958,9 +901,9 @@ export default function RestaurantDetailScreen() {
           </Marker>
         ) : null}
 
-        {displayedPolyline.length > 0 && (
+        { (navigationActive ? routePolyline : previewPolyline).length > 0 && (
           <MapPolyline
-            coordinates={displayedPolyline}
+            coordinates={navigationActive ? routePolyline : previewPolyline}
             strokeWidth={5}
             strokeColor="#2563eb"
           />
@@ -969,18 +912,14 @@ export default function RestaurantDetailScreen() {
         {nextStep?.endLocation ? (
           <Marker coordinate={nextStep.endLocation} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.turnPin}>
-              <Ionicons
-                name={getArrowIcon(nextStep.maneuver)}
-                size={16}
-                color="#fff"
-              />
+              <Ionicons name={getArrowIcon(nextStep.maneuver)} size={16} color="#fff" />
             </View>
           </Marker>
         ) : null}
       </MapView>
 
       {nextStep ? (
-        <View style={[styles.banner, { top: useSafeAreaInsets().top + 16 }]} pointerEvents="auto">
+        <View style={[styles.banner, { top: insets.top + 16 }]} pointerEvents="auto">
           <Ionicons
             name={getArrowIcon(nextStep.maneuver)}
             size={32}
@@ -996,10 +935,14 @@ export default function RestaurantDetailScreen() {
                 {[nextStep.distance, nextStep.duration].filter(Boolean).join(' - ')}
               </Text>
             ) : null}
-            {thenStep ? (
+            {routeSteps[currentStepIndex + 1] ? (
               <View style={styles.thenChip}>
                 <Text style={styles.thenText}>Then</Text>
-                <Ionicons name={getArrowIcon(thenStep.maneuver)} size={16} color="#fff" />
+                <Ionicons
+                  name={getArrowIcon(routeSteps[currentStepIndex + 1].maneuver)}
+                  size={16}
+                  color="#fff"
+                />
               </View>
             ) : null}
           </View>
@@ -1008,7 +951,7 @@ export default function RestaurantDetailScreen() {
 
       {navigationActive && nextStep ? (
         <View
-          style={[styles.navigationStopWrap, { top: useSafeAreaInsets().top + 16 }]}
+          style={[styles.navigationStopWrap, { top: insets.top + 16 }]}
           pointerEvents="box-none"
         >
           <TouchableOpacity style={styles.navigationStopButton} onPress={stopNavigation} activeOpacity={0.85}>
@@ -1023,10 +966,10 @@ export default function RestaurantDetailScreen() {
           {
             top:
               navigationActive && navSummary
-                ? useSafeAreaInsets().top + 180
+                ? insets.top + 180
                 : nextStep
-                  ? useSafeAreaInsets().top + 150
-                  : useSafeAreaInsets().top + 16,
+                  ? insets.top + 150
+                  : insets.top + 16,
           },
         ]}
         pointerEvents="box-none"
@@ -1085,7 +1028,14 @@ export default function RestaurantDetailScreen() {
         )}
       </View>
 
-      <Animated.View style={animatedSheetStyle}>
+      <Animated.View style={[
+        styles.sheetBase,
+        {
+          height: windowHeight + insets.bottom,
+          paddingBottom: insets.bottom + 24,
+          transform: [{ translateY: sheetTranslateY }],
+        },
+      ]}>
         <View style={styles.handle} {...panResponder.panHandlers}>
           <View style={styles.grabber} />
         </View>
@@ -1094,9 +1044,14 @@ export default function RestaurantDetailScreen() {
           <View style={styles.etaBar}>
             <Text style={styles.etaPrimary}>{navSummary.durationText || '--'}</Text>
             <Text style={styles.etaSecondary}>
-              {[distanceDisplay || null, arrivalDisplay ? `ETA ${arrivalDisplay}` : null]
-                .filter(Boolean)
-                .join(' \u2022 ')}
+              {[
+                navSummary.distanceText
+                  ? navSummary.distanceText
+                  : (typeof navSummary.distanceValue === 'number'
+                      ? `${(navSummary.distanceValue / 1000).toFixed(1)} km`
+                      : null),
+                navSummary.eta ? `ETA ${new Date(navSummary.eta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : null,
+              ].filter(Boolean).join(' \u2022 ')}
             </Text>
           </View>
         ) : null}
@@ -1171,16 +1126,27 @@ export default function RestaurantDetailScreen() {
                 <Text style={styles.actionText}>{navigationActive ? 'Stop' : 'Start'}</Text>
               </TouchableOpacity>
 
-              {/* Review modal trigger (local store) */}
-              <ReviewButton restaurantId={rid} onReviewAdded={() => setUserReviews(getUserReviews(rid))} />
+              <ReviewButton
+                restaurantId={rid}
+                onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+              />
             </View>
 
-            {!navigationActive && previewDistanceDisplay ? (
+            {!navigationActive && previewSummary ? (
               <View style={styles.previewRouteSummary}>
-                <Ionicons name="car-outline" size={16} color="#111827" style={styles.previewRouteIcon} />
+                <Ionicons
+                  name="car-outline"
+                  size={16}
+                  color="#111827"
+                  style={styles.previewRouteIcon}
+                />
                 <Text style={styles.previewRouteText}>
-                  {previewDistanceDisplay}
-                  {previewDurationDisplay ? ` \u2022 ${previewDurationDisplay}` : ''}
+                  {previewSummary.distanceText
+                    ? previewSummary.distanceText
+                    : (typeof previewSummary.distanceValue === 'number'
+                        ? `${(previewSummary.distanceValue / 1000).toFixed(1)} km`
+                        : '--')}
+                  {previewSummary.durationText ? ` \u2022 ${previewSummary.durationText}` : ''}
                 </Text>
               </View>
             ) : null}
@@ -1190,7 +1156,9 @@ export default function RestaurantDetailScreen() {
                 <Text style={styles.nextStepTitle}>Next turn</Text>
                 <Text style={styles.nextStepInstruction}>{nextStep.instruction}</Text>
                 <View style={styles.nextStepMeta}>
-                  {nextStep.maneuver ? <Badge text={formatManeuverLabel(nextStep.maneuver)} color="#bfdbfe" /> : null}
+                  {nextStep.maneuver ? (
+                    <Badge text={formatManeuverLabel(nextStep.maneuver)} color="#bfdbfe" />
+                  ) : null}
                   {nextStep.distance ? <Badge text={nextStep.distance} /> : null}
                   {nextStep.duration ? <Badge text={nextStep.duration} color="#d1fae5" /> : null}
                 </View>
@@ -1271,7 +1239,7 @@ export default function RestaurantDetailScreen() {
   );
 }
 
-// ---- Inline review modal using your local store (unchanged behavior) ----
+// ---- Inline review modal using your local store ----
 function ReviewButton({ restaurantId, onReviewAdded }) {
   const [showReview, setShowReview] = useState(false);
   const [taste, setTaste] = useState(0);

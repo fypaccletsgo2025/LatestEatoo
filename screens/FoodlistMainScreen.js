@@ -1,42 +1,33 @@
 // screens/FoodlistMainScreen.js
-
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getFoodlists, updateFoodlists } from '../state/foodlistsStore';
+import { useFocusEffect } from '@react-navigation/native';
+import { getFoodlists } from '../state/foodlistsStore';
 
 export default function FoodlistMainScreen({ navigation }) {
   const [foodlists, setFoodlists] = useState(getFoodlists());
 
-  const handleUpdateList = (updatedList) => {
-    updateFoodlists(prev => prev.map(f => (f.id === updatedList.id ? updatedList : f)));
-    setFoodlists(getFoodlists());
-  };
-
-  const handleDeleteList = (id) => {
-    updateFoodlists(prev => prev.filter(f => f.id !== id));
-    setFoodlists(getFoodlists());
-  };
+  // Refresh from the store whenever this screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      setFoodlists(getFoodlists());
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <View style={styles.container}>
         <Text style={styles.title}>Your Foodlists</Text>
+
         <FlatList
           data={foodlists}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.card}
-              onPress={() =>
-                navigation.navigate('FoodlistDetail', {
-                  foodlist: item,
-                  setFoodlists: (fn) => {
-                    updateFoodlists(fn);
-                    setFoodlists(getFoodlists());
-                  },
-                })
-              }
+              // ✅ Pass only serializable params
+              onPress={() => navigation.navigate('FoodlistDetail', { foodlistId: item.id })}
             >
               <Text style={styles.cardTitle}>{item.name}</Text>
               <Text style={styles.cardMeta}>
@@ -49,7 +40,8 @@ export default function FoodlistMainScreen({ navigation }) {
         {/* Add new Foodlist button */}
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => navigation.navigate('CreateFoodlist', { setFoodlists })}
+          // ✅ No function param; Create screen will write to the store and goBack()
+          onPress={() => navigation.navigate('CreateFoodlist')}
         >
           <Text style={styles.addText}>+</Text>
         </TouchableOpacity>

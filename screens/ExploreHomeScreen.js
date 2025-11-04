@@ -16,6 +16,11 @@ import Icon from 'react-native-vector-icons/Feather';
 // 👉 uses your frontend Appwrite client (place at project root: appwrite.ts/js)
 import { db, DB_ID, COL } from '../appwrite';
 import { Query } from 'appwrite';
+import {
+  arePreferenceSelectionsEqual,
+  replacePreferenceSelections,
+  usePreferenceSelections,
+} from '../state/preferenceSelectionsStore';
 
 export default function ExploreHomeScreen({
   onOpenDrawer,
@@ -31,10 +36,6 @@ export default function ExploreHomeScreen({
   const [loadError, setLoadError] = useState(null);
 
   // -------- UI state (unchanged) --------
-  const [selectedDiet, setSelectedDiet] = useState([]);
-  const [selectedCuisine, setSelectedCuisine] = useState([]);
-  const [selectedMood, setSelectedMood] = useState([]);
-  const [selectedPrice, setSelectedPrice] = useState([]);
   const [sortBy, setSortBy] = useState('relevance');
   const [search, setSearch] = useState('');
 
@@ -157,21 +158,22 @@ export default function ExploreHomeScreen({
   // load backend data once
   useEffect(() => { loadData(); }, []);
 
-  // keep your external selections hydration
+  const storeSelections = usePreferenceSelections();
+
   useEffect(() => {
-    if (externalSelections) {
-      const {
-        selectedDiet = [],
-        selectedCuisine = [],
-        selectedMood = [],
-        selectedPrice = [],
-      } = externalSelections;
-      setSelectedDiet(selectedDiet);
-      setSelectedCuisine(selectedCuisine);
-      setSelectedMood(selectedMood);
-      setSelectedPrice(selectedPrice);
+    if (
+      externalSelections &&
+      !arePreferenceSelectionsEqual(externalSelections, storeSelections)
+    ) {
+      replacePreferenceSelections(externalSelections);
     }
-  }, [externalSelections]);
+  }, [externalSelections, storeSelections]);
+
+  const activeSelections = externalSelections || storeSelections;
+  const selectedDiet = activeSelections?.selectedDiet ?? [];
+  const selectedCuisine = activeSelections?.selectedCuisine ?? [];
+  const selectedMood = activeSelections?.selectedMood ?? [];
+  const selectedPrice = activeSelections?.selectedPrice ?? [];
 
   // search handlers
   const handleSearchChange = (text) => setSearch(text);

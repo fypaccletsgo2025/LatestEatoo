@@ -3,31 +3,29 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
 import { availableItems, availableRestaurants } from '../data/mockData';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
+import {
+  arePreferenceSelectionsEqual,
+  replacePreferenceSelections,
+  resetPreferenceSelections,
+  updatePreferenceSelections,
+  usePreferenceSelections,
+} from '../state/preferenceSelectionsStore';
 
 export default function PreferenceMainPage({ route, navigation, externalSelections }) {
-  const {
-    selectedDiet: initialDiet = [],
-    selectedCuisine: initialCuisine = [],
-    selectedMood: initialMood = [],
-    selectedPrice: initialPrice = [],
-  } = route.params ?? {};
+  const selections = usePreferenceSelections();
+  const selectedDiet = selections.selectedDiet;
+  const selectedCuisine = selections.selectedCuisine;
+  const selectedMood = selections.selectedMood;
+  const selectedPrice = selections.selectedPrice;
 
-  // Local, editable filter state
-  const [selectedDiet, setSelectedDiet] = useState(initialDiet);
-  const [selectedCuisine, setSelectedCuisine] = useState(initialCuisine);
-  const [selectedMood, setSelectedMood] = useState(initialMood);
-  const [selectedPrice, setSelectedPrice] = useState(initialPrice);
+  const incomingParams = route?.params;
 
-  // Allow external application of selections (e.g., from embedded questionnaire)
   React.useEffect(() => {
-    if (externalSelections) {
-      const { selectedDiet = [], selectedCuisine = [], selectedMood = [], selectedPrice = [] } = externalSelections;
-      setSelectedDiet(selectedDiet);
-      setSelectedCuisine(selectedCuisine);
-      setSelectedMood(selectedMood);
-      setSelectedPrice(selectedPrice);
+    const source = externalSelections || incomingParams;
+    if (source && !arePreferenceSelectionsEqual(source, selections)) {
+      replacePreferenceSelections(source);
     }
-  }, [externalSelections]);
+  }, [externalSelections, incomingParams, selections]);
 
   // UX helpers
   const [search, setSearch] = useState('');
@@ -151,17 +149,30 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
   // Remove a single filter token
   const removeFilter = (group, value) => {
     const lower = String(value).toLowerCase();
-    if (group === 'diet') setSelectedDiet(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'cuisine') setSelectedCuisine(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'mood') setSelectedMood(prev => prev.filter(v => String(v).toLowerCase() !== lower));
-    if (group === 'price') setSelectedPrice(prev => prev.filter(v => String(v).toLowerCase() !== lower));
+    if (group === 'diet') {
+      updatePreferenceSelections((draft) => {
+        draft.selectedDiet = draft.selectedDiet.filter(v => String(v).toLowerCase() !== lower);
+      });
+    }
+    if (group === 'cuisine') {
+      updatePreferenceSelections((draft) => {
+        draft.selectedCuisine = draft.selectedCuisine.filter(v => String(v).toLowerCase() !== lower);
+      });
+    }
+    if (group === 'mood') {
+      updatePreferenceSelections((draft) => {
+        draft.selectedMood = draft.selectedMood.filter(v => String(v).toLowerCase() !== lower);
+      });
+    }
+    if (group === 'price') {
+      updatePreferenceSelections((draft) => {
+        draft.selectedPrice = draft.selectedPrice.filter(v => String(v).toLowerCase() !== lower);
+      });
+    }
   };
 
   const clearAll = () => {
-    setSelectedDiet([]);
-    setSelectedCuisine([]);
-    setSelectedMood([]);
-    setSelectedPrice([]);
+    resetPreferenceSelections();
     setSearch('');
     setSortBy('relevance');
   };
@@ -285,10 +296,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
         onClose={() => setShowPQ(false)}
         initialSelections={{ selectedDiet, selectedCuisine, selectedMood, selectedPrice }}
         onApply={(sel) => {
-          setSelectedDiet(sel.selectedDiet || []);
-          setSelectedCuisine(sel.selectedCuisine || []);
-          setSelectedMood(sel.selectedMood || []);
-          setSelectedPrice(sel.selectedPrice || []);
+          replacePreferenceSelections(sel);
           setShowPQ(false);
         }}
       />

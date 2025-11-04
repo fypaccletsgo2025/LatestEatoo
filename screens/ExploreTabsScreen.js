@@ -11,13 +11,17 @@ import LibraryScreen from './LibraryScreen';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
 import AnimatedPillTabBar from '../components/AnimatedPillTabBar';
+import {
+  replacePreferenceSelections,
+  usePreferenceSelections,
+} from '../state/preferenceSelectionsStore';
 
 export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPQ, setShowPQ] = useState(false);
-  const [appliedSelections, setAppliedSelections] = useState(null);
+  const preferenceSelections = usePreferenceSelections();
 
   const rawName = (currentUser?.name || currentUser?.fullName || '').trim();
   const displayName = rawName || currentUser?.email || 'Guest';
@@ -122,7 +126,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
             onStartQuestionnaire={() => {
               setShowPQ(true);
             }}
-            externalSelections={appliedSelections}
+            externalSelections={preferenceSelections}
           />
         )}
         {tab === 'search' && <SearchScreen navigation={navigation} />}
@@ -263,16 +267,9 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
       <PreferenceQuestionnaireSheet
         open={showPQ}
         onClose={() => setShowPQ(false)}
-        initialSelections={
-          appliedSelections || {
-            selectedDiet: [],
-            selectedCuisine: [],
-            selectedMood: [],
-            selectedPrice: [],
-          }
-        }
+        initialSelections={preferenceSelections}
         onApply={(selections) => {
-          setAppliedSelections(selections);
+          replacePreferenceSelections(selections);
           setShowPQ(false);
         }}
       />

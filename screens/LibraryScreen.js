@@ -1,53 +1,98 @@
 // screens/LibraryScreen.js
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { availableItems, availableRestaurants } from '../data/mockData';
-import { getFoodlists, updateFoodlists } from '../state/foodlistsStore';
+
+// ✅ Local stores
+import { getFoodlists } from '../state/foodlistsStore';
 import {
   getSavedRestaurantIds,
   getLikedItemIds,
-  saveRestaurant,
-  likeItem,
   onLibraryChange,
 } from '../state/libraryStore';
+
+// ✅ Appwrite
+import { db, DB_ID, COL } from '../appwrite';
+import { Query } from 'appwrite';
 
 const THEME_COLOR = '#FF4D00';
 const BG_COLOR = '#FFF5ED';
 
+/** Fetch a set of Appwrite docs by $id[] with safe guards */
+async function fetchByIds(collectionId, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  // Appwrite supports array to Query.equal => IN semantics
+  const res = await db.listDocuments(DB_ID, collectionId, [Query.equal('$id', ids)]);
+  return res.documents || [];
+}
+
 export default function LibraryScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+
+  // State
+  const [foodlists, setFoodlists] = React.useState(getFoodlists());
   const [savedRestaurants, setSavedRestaurants] = React.useState([]);
   const [likedItems, setLikedItems] = React.useState([]);
-  const [foodlists, setFoodlists] = React.useState(getFoodlists());
+  const [loading, setLoading] = React.useState(true);
 
-  const refresh = React.useCallback(() => {
-    const restIds = new Set(getSavedRestaurantIds());
-    const itemIds = new Set(getLikedItemIds());
-    setSavedRestaurants(availableRestaurants.filter((r) => restIds.has(r.id)));
-    setLikedItems(availableItems.filter((i) => itemIds.has(i.id)));
+  const refresh = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const restIds = getSavedRestaurantIds();
+      const itemIds = getLikedItemIds();
+
+      const [restaurantDocs, itemDocs] = await Promise.all([
+        fetchByIds(COL.restaurants, restIds),
+        fetchByIds(COL.items, itemIds),
+      ]);
+
+      // Normalize minimal fields used in UI
+      const normalizedRestaurants = restaurantDocs.map((r) => ({
+        id: r.$id,
+        name: r.name,
+        location: r.location || '',
+        cuisine: Array.isArray(r.cuisines) ? r.cuisines.join(', ') : (r.cuisine || ''),
+        averagePrice: typeof r.averagePriceValue === 'number' ? `RM${r.averagePriceValue}` : r.averagePrice || '',
+      }));
+
+      const normalizedItems = itemDocs.map((i) => ({
+        id: i.$id,
+        name: i.name,
+        restaurant: i.restaurantName || '',
+        type: i.type || 'other',
+        price: typeof i.priceRM === 'number' ? `RM ${Number(i.priceRM).toFixed(2)}` : (i.price || ''),
+      }));
+
+      setSavedRestaurants(normalizedRestaurants);
+      setLikedItems(normalizedItems);
+      setFoodlists(getFoodlists());
+    } catch (e) {
+      console.warn('Library refresh failed:', e?.message || e);
+      setSavedRestaurants([]);
+      setLikedItems([]);
+      setFoodlists(getFoodlists());
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const seededRef = React.useRef(false);
   React.useEffect(() => {
     const unsubscribe = onLibraryChange(() => {
+      // libraryStore changed → pull fresh ids and reload docs
       refresh();
-      setFoodlists(getFoodlists());
     });
-    if (!seededRef.current) {
-      if (getSavedRestaurantIds().length === 0 && availableRestaurants.length > 0) {
-        saveRestaurant(availableRestaurants[0].id);
-      }
-      if (getLikedItemIds().length === 0 && availableItems.length > 0) {
-        likeItem(availableItems[0].id);
-        if (availableItems[1]) likeItem(availableItems[1].id);
-      }
-      seededRef.current = true;
-    }
+    // Initial + when screen regains focus
     refresh();
-    setFoodlists(getFoodlists());
     return () => unsubscribe();
   }, [isFocused, refresh]);
 
@@ -58,28 +103,21 @@ export default function LibraryScreen() {
         contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Scrollable brand header (consistent with Explore/Home) */}
+        {/* Brand header */}
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle}>Your Library</Text>
           <View style={styles.subtitleRow}>
-            <Text style={styles.headerSubtitle}>Round up your saved bites & hangouts.</Text>
+            <Text style={styles.headerSubtitle}>Round up your saved bites &amp; hangouts.</Text>
           </View>
         </View>
 
         <View style={{ paddingHorizontal: 16 }}>
-          {/* Foodlists Section */}
+          {/* Foodlists */}
           <View style={styles.section}>
             <View style={styles.headerRow}>
               <Text style={styles.sectionTitle}>Foodlists ({foodlists.length})</Text>
               <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('CreateFoodlist', {
-                    setFoodlists: (fn) => {
-                      updateFoodlists(fn);
-                      setFoodlists(getFoodlists());
-                    },
-                  })
-                }
+                onPress={() => navigation.navigate('CreateFoodlist')}
                 style={styles.addButton}
                 accessibilityRole="button"
                 accessibilityLabel="Create a new foodlist"
@@ -101,11 +139,8 @@ export default function LibraryScreen() {
                     style={styles.card}
                     onPress={() =>
                       navigation.navigate('FoodlistDetail', {
+                        // pass only serializable data
                         foodlist: f,
-                        setFoodlists: (fn) => {
-                          updateFoodlists(fn);
-                          setFoodlists(getFoodlists());
-                        },
                       })
                     }
                   >
@@ -119,9 +154,11 @@ export default function LibraryScreen() {
             )}
           </View>
 
-          {/* Liked Dishes Section */}
+          {/* Liked Dishes */}
           <Section title={`Liked Dishes (${likedItems.length})`}>
-            {likedItems.length === 0 ? (
+            {loading ? (
+              <Loading />
+            ) : likedItems.length === 0 ? (
               <Empty text="No liked dishes yet." />
             ) : (
               <FlatList
@@ -131,7 +168,7 @@ export default function LibraryScreen() {
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.cardAlt}
-                    onPress={() => navigation.navigate('PreferenceItemDetail', { item })}
+                    onPress={() => navigation.navigate('PreferenceItemDetail', { itemId: item.id })}
                   >
                     <Text style={styles.cardTitle}>{item.name}</Text>
                     <Text style={styles.cardMeta}>
@@ -143,9 +180,11 @@ export default function LibraryScreen() {
             )}
           </Section>
 
-          {/* Saved Restaurants Section */}
+          {/* Saved Restaurants */}
           <Section title={`Saved Restaurants (${savedRestaurants.length})`}>
-            {savedRestaurants.length === 0 ? (
+            {loading ? (
+              <Loading />
+            ) : savedRestaurants.length === 0 ? (
               <Empty text="No saved restaurants yet." />
             ) : (
               <FlatList
@@ -155,7 +194,7 @@ export default function LibraryScreen() {
                 renderItem={({ item: r }) => (
                   <TouchableOpacity
                     style={styles.cardAlt}
-                    onPress={() => navigation.navigate('RestaurantDetail', { restaurant: r })}
+                    onPress={() => navigation.navigate('RestaurantDetail', { restaurantId: r.id })}
                   >
                     <Text style={styles.cardTitle}>{r.name}</Text>
                     <Text style={styles.cardMeta}>
@@ -189,17 +228,19 @@ function Empty({ text }) {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: BG_COLOR,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: BG_COLOR,
-  },
+function Loading() {
+  return (
+    <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+      <ActivityIndicator color={THEME_COLOR} />
+    </View>
+  );
+}
 
-  /* Scrollable header */
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: BG_COLOR },
+  container: { flex: 1, backgroundColor: BG_COLOR },
+
+  /* Header */
   headerContainer: {
     padding: 22,
     backgroundColor: THEME_COLOR,
@@ -215,26 +256,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerSubtitle: {
-    color: '#fff',
-    opacity: 0.95,
-    fontSize: 15,
-    flexShrink: 1,
-    paddingRight: 10,
-  },
-  pillIcon: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.85)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerSubtitle: { color: '#fff', opacity: 0.95, fontSize: 15, flexShrink: 1, paddingRight: 10 },
 
   /* Sections */
   section: {
@@ -250,17 +273,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#3C1E12',
-  },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#3C1E12' },
   addButton: {
     backgroundColor: THEME_COLOR,
     width: 36,
@@ -301,22 +315,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-    // optional accent strip—kept subtle to stay “minimalist”
     borderLeftWidth: 5,
     borderLeftColor: THEME_COLOR,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  cardMeta: {
-    fontSize: 13,
-    color: '#6B4A3F',
-    marginTop: 4,
-  },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  cardMeta: { fontSize: 13, color: '#6B4A3F', marginTop: 4 },
 
-  /* Empty state */
+  /* Empty */
   emptyBox: {
     backgroundColor: '#FFF9F3',
     padding: 14,

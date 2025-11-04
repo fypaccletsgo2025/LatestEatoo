@@ -9,24 +9,32 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { availableItems } from '../data/mockData';
 import BackButton from '../components/BackButton';
 
+// Local store
+import { updateFoodlists } from '../state/foodlistsStore';
+
+// Appwrite wrapper + SDK symbols
+import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
+import { Query, ID, Permission, Role } from 'appwrite';
+
 const BRAND = {
-  primary: '#FF4D00',   // bold orange
-  accent: '#FDAA48',    // light orange (buttons/pills)
-  bg: '#f7f4f2',        // cream
-  ink: '#222',          // main text
-  inkMuted: '#666',     // muted text
-  line: '#e6e0dc',      // borders
-  pillBg: '#fff7f2',    // subtle pill bg
-  pillActiveBg: '#FFD8BF', // active pill bg
-  metaBg: '#FFF3E9',    // meta pill bg
-  badgeBg: '#FFD8BF',   // count badge
-  disabled: '#F7B890',  // disabled orange
+  primary: '#FF4D00',
+  accent: '#FDAA48',
+  bg: '#f7f4f2',
+  ink: '#222',
+  inkMuted: '#666',
+  line: '#e6e0dc',
+  pillBg: '#fff7f2',
+  pillActiveBg: '#FFD8BF',
+  metaBg: '#FFF3E9',
+  badgeBg: '#FFD8BF',
+  disabled: '#F7B890',
 };
 
 const SORTS = [
@@ -43,24 +51,57 @@ const parsePriceToNumber = (price) => {
 
 const toTitleCase = (value) => {
   if (!value) return '';
-  const normalized = String(value)
-    .replace(/[-_]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  const normalized = String(value).replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
   return normalized.replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
-export default function CreateFoodlistScreen({ route, navigation }) {
-  const { setFoodlists } = route.params;
+const normalizeItemDoc = (it) => ({
+  id: it.$id,
+  name: it.name,
+  restaurant: it.restaurantName || '',
+  rating: typeof it.rating === 'number' ? it.rating : null,
+  price: typeof it.priceRM === 'number' ? `RM ${Number(it.priceRM).toFixed(2)}` : null,
+  tags: Array.isArray(it.tags) ? it.tags : [],
+  createdAt: it.$updatedAt || it.$createdAt,
+});
+
+export default function CreateFoodlistScreen({ navigation }) {
   const insets = useSafeAreaInsets();
 
+  // Form state
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState('top');
   const [selectedItems, setSelectedItems] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
 
+  // Remote items
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Load candidate items from Appwrite
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const res = await db.listDocuments(DB_ID, COL.items, [Query.limit(200)]);
+        const docs = (res.documents || []).map(normalizeItemDoc);
+        if (!cancelled) setItems(docs);
+      } catch (e) {
+        console.warn('Failed to load items:', e?.message || e);
+        if (!cancelled) setItems([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // tiny typing debounce for empty state message
   useEffect(() => {
     if (!query) return;
     setIsTyping(true);
@@ -70,29 +111,66 @@ export default function CreateFoodlistScreen({ route, navigation }) {
 
   const toggleSelectItem = (item) => {
     setSelectedItems((prev) =>
-      prev.find((i) => i.id === item.id)
-        ? prev.filter((i) => i.id !== item.id)
-        : [...prev, item]
+      prev.find((i) => i.id === item.id) ? prev.filter((i) => i.id !== item.id) : [...prev, item]
     );
   };
 
-  const saveFoodlist = () => {
-    if (!name.trim() || selectedItems.length === 0) return;
+  const saveFoodlist = async () => {
+    if (!name.trim() || selectedItems.length === 0 || saving) return;
 
-    const newList = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      items: selectedItems,
-      members: [],
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      setSaving(true);
+      // Ensure user has a session (anonymous or real)
+      await ensureSession();
 
-    setFoodlists((prev) => [...prev, newList]);
-    navigation.goBack();
+      // Current user for ownerId + permissions
+      const user = await account.get();
+      const userId = user.$id;
+
+      const payload = {
+        name: name.trim(),
+        itemIds: selectedItems.map((i) => i.id),
+        ownerId: userId,
+      };
+
+      // Scope doc to the current user
+      const permissions = [
+        Permission.read(Role.user(userId)),
+        Permission.update(Role.user(userId)),
+        Permission.delete(Role.user(userId)),
+      ];
+
+      const created = await db.createDocument(
+        DB_ID,
+        COL.foodlists,
+        ID.unique(),
+        payload,
+        permissions
+      );
+
+      // Optimistic local state for instant UI
+      updateFoodlists((prev) => [
+        ...prev,
+        {
+          id: created.$id,
+          name: created.name,
+          items: selectedItems, // keep full items locally for display
+          itemIds: created.itemIds,
+          ownerId: userId,
+        },
+      ]);
+
+      navigation.goBack();
+    } catch (err) {
+      console.error('❌ Failed to save foodlist:', err);
+      Alert.alert('Error', err?.message || 'Failed to save to database.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filteredSortedItems = useMemo(() => {
-    let list = Array.isArray(availableItems) ? availableItems.slice() : [];
+    let list = items.slice();
 
     const q = query.trim().toLowerCase();
     if (q) {
@@ -123,7 +201,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
     }
 
     return list;
-  }, [query, sortKey]);
+  }, [items, query, sortKey]);
 
   const Header = () => (
     <View style={styles.headerWrap}>
@@ -133,9 +211,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={styles.headerTitle}>Create Foodlist</Text>
           <Text style={styles.headerSubtitle}>
-            {selectedItems.length > 0
-              ? `${selectedItems.length} selected`
-              : 'Pick your favourites'}
+            {selectedItems.length > 0 ? `${selectedItems.length} selected` : 'Pick your favourites'}
           </Text>
         </View>
 
@@ -188,9 +264,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
                 accessibilityRole="button"
                 accessibilityLabel={`Sort by ${s.label}`}
               >
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                  {s.label}
-                </Text>
+                <Text style={[styles.pillText, active && styles.pillTextActive]}>{s.label}</Text>
               </TouchableOpacity>
             );
           })}
@@ -205,11 +279,11 @@ export default function CreateFoodlistScreen({ route, navigation }) {
     <View style={styles.empty}>
       <Ionicons name="fast-food-outline" size={42} color={BRAND.inkMuted} />
       <Text style={styles.emptyTitle}>
-        {isTyping ? 'Searching…' : 'No matches found'}
+        {isTyping ? 'Searching…' : loading ? 'Loading…' : 'No matches found'}
       </Text>
-      <Text style={styles.emptyText}>
-        Try a different keyword or change the sort option.
-      </Text>
+      {!loading && (
+        <Text style={styles.emptyText}>Try a different keyword or change the sort option.</Text>
+      )}
     </View>
   );
 
@@ -245,7 +319,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
             {!!item?.rating && (
               <View style={styles.metaPill}>
                 <Ionicons name="star" size={14} />
-                <Text style={styles.metaText}>{item.rating.toFixed(1)}</Text>
+                <Text style={styles.metaText}>{Number(item.rating).toFixed(1)}</Text>
               </View>
             )}
             {price != null && (
@@ -270,7 +344,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
     );
   };
 
-  const canSave = name.trim().length > 0 && selectedItems.length > 0;
+  const canSave = name.trim().length > 0 && selectedItems.length > 0 && !saving;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -280,6 +354,12 @@ export default function CreateFoodlistScreen({ route, navigation }) {
         keyboardVerticalOffset={insets.top}
       >
         <View style={styles.container}>
+          {loading ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <ActivityIndicator color={BRAND.primary} />
+            </View>
+          ) : null}
+
           <FlatList
             data={filteredSortedItems}
             keyExtractor={(item, idx) => String(item?.id ?? idx)}
@@ -293,12 +373,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
           />
 
           {/* Safe-bottom action bar (orange) */}
-          <View
-            style={[
-              styles.bottomBar,
-              { paddingBottom: 12 + insets.bottom },
-            ]}
-          >
+          <View style={[styles.bottomBar, { paddingBottom: 12 + insets.bottom }]}>
             <View style={styles.summary}>
               <View style={styles.countBadge}>
                 <Text style={styles.countText}>{selectedItems.length}</Text>
@@ -320,7 +395,7 @@ export default function CreateFoodlistScreen({ route, navigation }) {
               accessibilityLabel="Save foodlist"
             >
               <Ionicons name="save-outline" size={18} color="#fff" />
-              <Text style={styles.saveBtnText}>Save Foodlist</Text>
+              <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save Foodlist'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -415,7 +490,7 @@ const styles = StyleSheet.create({
     color: BRAND.ink,
   },
 
-  // Cards (no image)
+  // Cards
   card: {
     marginHorizontal: 16,
     backgroundColor: '#fff',
@@ -462,7 +537,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: '800', color: BRAND.ink, marginTop: 6 },
   emptyText: { fontSize: 13, color: BRAND.inkMuted, textAlign: 'center' },
 
-  // Bottom bar (orange) with safe frame
+  // Bottom bar (orange)
   bottomBar: {
     position: 'absolute',
     left: 0,

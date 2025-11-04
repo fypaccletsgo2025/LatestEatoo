@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import Icon from 'react-native-vector-icons/Feather';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { availableItems, availableRestaurants } from '../data/mockData';
+import { replacePreferenceSelections } from '../state/preferenceSelectionsStore';
 
 function Chip({ label, selected, onPress }) {
   return (
@@ -68,6 +69,7 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
 
   const handleApply = () => {
     const payload = { selectedDiet, selectedCuisine, selectedMood, selectedPrice };
+    replacePreferenceSelections(payload);
     if (onComplete) onComplete(payload);
     else if (navigation?.navigate) navigation.navigate('PreferenceMainPage', payload);
   };
