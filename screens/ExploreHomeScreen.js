@@ -1,5 +1,5 @@
 // ExploreHomeScreen.js
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -10,17 +10,22 @@ import {
   FlatList,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 
-// 👉 uses your frontend Appwrite client (place at project root: appwrite.ts/js)
+// dY`% uses your frontend Appwrite client (place at project root: appwrite.ts/js)
 import { db, DB_ID, COL } from '../appwrite';
 import { Query } from 'appwrite';
+import { getNaiveBayesRecommendationsForCurrentUser } from '../data/NaiveBayes';
 import {
   arePreferenceSelectionsEqual,
   replacePreferenceSelections,
   usePreferenceSelections,
 } from '../state/preferenceSelectionsStore';
+import { getLikedItemIds, getSavedRestaurantIds } from '../state/libraryStore';
+
+const EMPTY_SET = new Set();
 
 export default function ExploreHomeScreen({
   onOpenDrawer,
@@ -29,21 +34,267 @@ export default function ExploreHomeScreen({
 }) {
   const navigation = useNavigation();
 
-  // -------- live data (replaces mock imports) --------
+  // -------- live data --------
   const [availableRestaurants, setAvailableRestaurants] = useState([]);
   const [availableItems, setAvailableItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [bayesScores, setBayesScores] = useState(new Map());
 
-  // -------- UI state (unchanged) --------
+  // store click *events* instead of raw counts: Map<restaurantId, number[] of timestamps>
+  const [clickEvents, setClickEvents] = useState(new Map());
+
+  // -------- UI state --------
   const [sortBy, setSortBy] = useState('relevance');
   const [search, setSearch] = useState('');
 
-  // ---------- helpers to match your mock data shapes ----------
+  // ---------- helpers ----------
   const toRM = (n) => (n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`);
-  const toNumberPrice = (p) => parseInt(String(p).replace('RM', ''));
+  const toNumberPrice = (p) => parseInt(String(p).replace('RM', '')) || 0;
   const sum = (arr) => arr.reduce((s, n) => s + n, 0);
 
+  // --- % helpers (for the match badge) ---
+  const clamp01 = (x) => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0));
+  const pct = (x) => Math.round(clamp01(x) * 100);
+
+  const likesFunctionAvailable = typeof getLikedItemIds === 'function';
+  const savesFunctionAvailable = typeof getSavedRestaurantIds === 'function';
+
+  const rawLikedItemIds = likesFunctionAvailable ? getLikedItemIds() : [];
+  const cleanedLikedItemIds = Array.isArray(rawLikedItemIds)
+    ? rawLikedItemIds.filter(Boolean)
+    : [];
+  const sortedLikedItemIds = cleanedLikedItemIds.slice().sort();
+  const likedItemsSerialized =
+    sortedLikedItemIds.length > 0 ? JSON.stringify(sortedLikedItemIds) : '';
+
+  const likedItemsSet = useMemo(() => {
+    if (!likedItemsSerialized) return EMPTY_SET;
+    try {
+      return new Set(JSON.parse(likedItemsSerialized));
+    } catch (_err) {
+      return EMPTY_SET;
+    }
+  }, [likedItemsSerialized]);
+
+  const rawSavedRestaurantIds = savesFunctionAvailable ? getSavedRestaurantIds() : [];
+  const cleanedSavedRestaurantIds = Array.isArray(rawSavedRestaurantIds)
+    ? rawSavedRestaurantIds.filter(Boolean)
+    : [];
+  const sortedSavedRestaurantIds = cleanedSavedRestaurantIds.slice().sort();
+  const savedRestaurantsSerialized =
+    sortedSavedRestaurantIds.length > 0 ? JSON.stringify(sortedSavedRestaurantIds) : '';
+
+  const savedRestaurantsSet = useMemo(() => {
+    if (!savedRestaurantsSerialized) return EMPTY_SET;
+    try {
+      return new Set(JSON.parse(savedRestaurantsSerialized));
+    } catch (_err) {
+      return EMPTY_SET;
+    }
+  }, [savedRestaurantsSerialized]);
+
+  const likedRestaurantsSet = useMemo(() => {
+    if (!likedItemsSerialized) return EMPTY_SET;
+    const restaurantIds = new Set();
+    availableItems.forEach((item) => {
+      if (item?.restaurantId && likedItemsSet.has(item.id)) {
+        restaurantIds.add(item.restaurantId);
+      }
+    });
+    return restaurantIds;
+  }, [availableItems, likedItemsSerialized, likedItemsSet]);
+
+  // ---------- click events helpers ----------
+  const now = () => Date.now();
+
+  const incrementRestaurantClick = useCallback((restaurantId) => {
+    if (!restaurantId) return;
+    setClickEvents((prev) => {
+      const next = new Map(prev);
+      const arr = Array.isArray(next.get(restaurantId)) ? [...next.get(restaurantId)] : [];
+      arr.unshift(now()); // keep newest first
+      // cap stored events to avoid memory creep
+      if (arr.length > 50) arr.length = 50;
+      next.set(restaurantId, arr);
+      return next;
+    });
+  }, []);
+
+  const getClicksCount = useCallback(
+    (restaurantId) => {
+      const arr = clickEvents.get(restaurantId);
+      return Array.isArray(arr) ? arr.length : 0;
+    },
+    [clickEvents]
+  );
+
+  const computeRecencyScore = useCallback(
+    (restaurantId) => {
+      // Sum of decayed weights for each click timestamp.
+      // Half-life of 7 days -> decay const
+      const arr = clickEvents.get(restaurantId) || [];
+      if (!arr.length) return 0;
+      const msPerDay = 1000 * 60 * 60 * 24;
+      const halfLifeDays = 7;
+      const lambda = Math.log(2) / (halfLifeDays * msPerDay); // decay per ms
+      const tNow = now();
+      let s = 0;
+      for (const ts of arr) {
+        const dt = Math.max(0, tNow - ts);
+        s += Math.exp(-lambda * dt); // recent clicks contribute ~1, older decay
+      }
+      // normalize by number of stored events so restaurants with many stored clicks don't explode
+      return s / (arr.length || 1);
+    },
+    [clickEvents]
+  );
+
+  // ---------- contextual similarity ----------
+  function normalizeToken(t) {
+    return String(t || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  const computeContextualSimilarity = useCallback(
+    (restaurant, selections) => {
+      if (!restaurant) return 0;
+      const features = [
+        ...(restaurant.cuisines || []),
+        ...(restaurant.ambience || []),
+        restaurant.theme || '',
+      ]
+        .map(normalizeToken)
+        .filter(Boolean);
+
+      const prefs = [
+        ...(selections?.selectedCuisine || []),
+        ...(selections?.selectedMood || []),
+        ...(selections?.selectedDiet || []),
+      ]
+        .map(normalizeToken)
+        .filter(Boolean);
+
+      if (!prefs.length || !features.length) return 0;
+
+      // simple overlap ratio (Jaccard-ish)
+      const fset = new Set(features);
+      const pset = new Set(prefs);
+      const intersection = [...pset].filter((p) => fset.has(p)).length;
+      const union = new Set([...features, ...prefs]).size || 1;
+      return intersection / union; // 0..1
+    },
+    []
+  );
+
+  // ---------- user cuisine profile (for novelty) ----------
+  const userCuisineProfile = useMemo(() => {
+    const counts = {};
+    availableItems.forEach((item) => {
+      if (likedItemsSet.has(item.id)) {
+        const c = normalizeToken(item.cuisine || 'unknown');
+        counts[c] = (counts[c] || 0) + 1;
+      }
+    });
+    return counts; // {cuisine: count}
+  }, [availableItems, likedItemsSet]);
+
+  const userTopCuisines = useMemo(() => {
+    const entries = Object.entries(userCuisineProfile).sort((a, b) => b[1] - a[1]);
+    return entries.map((e) => e[0]).slice(0, 3); // top 3 cuisines
+  }, [userCuisineProfile]);
+
+  const computeNovelty = useCallback((restaurant) => {
+    if (!restaurant) return 0.05; // small default novelty if no data
+    const restCuisines = (restaurant.cuisines || [])
+      .map(normalizeToken)
+      .filter(Boolean);
+    if (!restCuisines.length) return 0.05;
+    if (!userTopCuisines.length) return 0.05;
+
+    // novelty = 1 - overlap ratio
+    const overlap = restCuisines.filter((c) => userTopCuisines.includes(c)).length;
+    const overlapRatio = overlap / Math.max(restCuisines.length, 1);
+    // scale to small bump [0.02 .. 0.12]
+    return clamp01(1 - overlapRatio) * 0.12;
+  }, [userTopCuisines]);
+
+  // ---------- enhanced final score ----------
+  const computeFinalScore = useCallback(
+    (restaurantId, ratingValue = 0, directLiked = false) => {
+      if (!restaurantId) return 0;
+      const r = availableRestaurants.find((x) => x.id === restaurantId) || null;
+
+      // Naive Bayes probability (0..1)
+      const probability = clamp01(bayesScores.get(restaurantId) ?? 0);
+
+      // normalized rating (0..1)
+      const numericRating = Number(ratingValue);
+      const normalizedRating =
+        Number.isFinite(numericRating) && numericRating > 0
+          ? Math.max(0, Math.min(numericRating, 5)) / 5
+          : 0;
+
+      // engagement metric
+      const totalLiked = likedItemsSet.size || 0;
+      const totalClicksAcrossAll = Array.from(clickEvents.values()).reduce(
+        (acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0),
+        0
+      );
+      const engagement = totalLiked + totalClicksAcrossAll * 0.5; // clicks matter but less than likes
+
+      // adaptive Bayes weight: trust Bayes more when user has more engagement
+      const bayesWeight = Math.min(0.75, 0.25 + clamp01(engagement * 0.04)); // 0.25..0.75
+
+      const hybrid = bayesWeight * probability + (1 - bayesWeight) * normalizedRating;
+
+      // recency boost from clicks for this restaurant
+      const recencyScore = computeRecencyScore(restaurantId); // ~0..1 (decayed)
+      const clicksCount = getClicksCount(restaurantId);
+
+      const liked =
+        directLiked ||
+        (likedRestaurantsSet.size > 0 && likedRestaurantsSet.has(restaurantId));
+      const saved = savedRestaurantsSet.size > 0 && savedRestaurantsSet.has(restaurantId);
+
+      // raw boost composed from recency, absolute click count, liked, saved
+      const rawBoostUncapped =
+        0.35 * recencyScore + // recent clicks matter fairly
+        0.06 * clicksCount + // small per-click bump
+        0.75 * (liked ? 1 : 0) + // liking is a strong signal
+        0.4 * (saved ? 1 : 0); // saving means intent
+
+      const rawBoost = Math.min(1, rawBoostUncapped);
+
+      // contextual similarity (0..1)
+      const contextBoost = computeContextualSimilarity(r, externalSelections || storeSelections);
+
+      // novelty small bump (favor exploration)
+      const novelty = computeNovelty(r);
+
+      // final weighted mix
+      // weights: hybrid (content/personalized), interaction boost, contextual, novelty
+      const finalScore =
+        0.55 * hybrid + 0.25 * rawBoost + 0.15 * contextBoost + novelty;
+
+      // clamp
+      return clamp01(finalScore);
+    },
+    [
+      bayesScores,
+      clickEvents,
+      availableRestaurants,
+      likedItemsSet,
+      likedRestaurantsSet,
+      savedRestaurantsSet,
+      computeRecencyScore,
+      getClicksCount,
+      computeContextualSimilarity,
+      computeNovelty,
+      externalSelections,
+    ]
+  );
+
+  // ---------- computeRestaurantMeta etc. (unchanged but kept here) ----------
   function computeRestaurantMeta(rDoc, menusByRestaurant, itemsByRestaurant) {
     const items = (itemsByRestaurant.get(rDoc.$id) || []).map((it) => ({
       id: it.$id,
@@ -158,6 +409,34 @@ export default function ExploreHomeScreen({
   // load backend data once
   useEffect(() => { loadData(); }, []);
 
+  // load NB probabilities (we'll use them for hybrid scoring)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNaiveBayesRecommendations() {
+      try {
+        const recommendations = await getNaiveBayesRecommendationsForCurrentUser();
+        if (cancelled) return;
+        const scoreMap = new Map();
+        recommendations.forEach((entry) => {
+          const id = entry?.restaurant?.id;
+          if (id) scoreMap.set(id, entry.probability ?? 0);
+        });
+        setBayesScores(scoreMap);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Failed to load personalized recommendations', err);
+          setBayesScores(new Map());
+        }
+      }
+    }
+
+    loadNaiveBayesRecommendations();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const storeSelections = usePreferenceSelections();
 
   useEffect(() => {
@@ -223,16 +502,40 @@ export default function ExploreHomeScreen({
     return [...itemMatches, ...restaurantMatches].slice(0, 8);
   }, [search, availableItems, availableRestaurants]);
 
-  const handleSelectSuggestion = (s) => {
-    if (s.kind === 'item') {
-      navigation.navigate('PreferenceItemDetail', { item: s.payload });
-    } else if (s.kind === 'restaurant') {
-      navigation.navigate('RestaurantDetail', { restaurant: s.payload });
-    }
-    setSearch('');
-  };
+  const handlePressRestaurant = useCallback(
+    (restaurant) => {
+      if (!restaurant) return;
+      const rid = restaurant.id || restaurant.$id;
+      if (rid) incrementRestaurantClick(rid);
+      navigation.navigate('RestaurantDetail', { restaurant });
+    },
+    [incrementRestaurantClick, navigation]
+  );
 
-  // filters (unchanged, but now use live arrays)
+  const handlePressItem = useCallback(
+    (item) => {
+      if (!item) return;
+      if (item.restaurantId) incrementRestaurantClick(item.restaurantId);
+      navigation.navigate('PreferenceItemDetail', { item });
+    },
+    [incrementRestaurantClick, navigation]
+  );
+
+  const handleSelectSuggestion = useCallback(
+    (s) => {
+      if (!s) return;
+      if (s.kind === 'item') {
+        handlePressItem(s.payload);
+      } else if (s.kind === 'restaurant') {
+        handlePressRestaurant(s.payload);
+      }
+      setSearch('');
+    },
+    [handlePressItem, handlePressRestaurant]
+  );
+
+  // ---------------- filters + sorting (Hybrid relevance) ----------------
+
   const filteredItems = useMemo(() => {
     const items = availableItems.filter((item) => {
       const dietMatch =
@@ -261,15 +564,61 @@ export default function ExploreHomeScreen({
           }
         });
 
-      return dietMatch && cuisineMatch && moodMatch && priceMatch;
+      // search term filtering for items list (by name/restaurant)
+      const term = search.trim().toLowerCase();
+      const searchMatch =
+        term.length === 0 ||
+        String(item.name).toLowerCase().includes(term) ||
+        String(item.restaurant).toLowerCase().includes(term);
+
+      return dietMatch && cuisineMatch && moodMatch && priceMatch && searchMatch;
     });
 
     const sorted = [...items];
-    if (sortBy === 'rating_desc') sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc') sorted.sort((a, b) => toNumberPrice(a.price) - toNumberPrice(b.price));
-    else if (sortBy === 'price_desc') sorted.sort((a, b) => toNumberPrice(b.price) - toNumberPrice(a.price));
+    if (sortBy === 'rating_desc') {
+      sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sortBy === 'price_asc') {
+      sorted.sort((a, b) => toNumberPrice(a.price) - toNumberPrice(b.price));
+    } else if (sortBy === 'price_desc') {
+      sorted.sort((a, b) => toNumberPrice(b.price) - toNumberPrice(a.price));
+    } else if (sortBy === 'relevance') {
+      sorted.sort((a, b) => {
+        const probA = bayesScores.has(a.restaurantId)
+          ? clamp01(bayesScores.get(a.restaurantId) ?? 0)
+          : -1;
+        const probB = bayesScores.has(b.restaurantId)
+          ? clamp01(bayesScores.get(b.restaurantId) ?? 0)
+          : -1;
+        if (probB !== probA) return probB - probA;
+        const sA = computeFinalScore(
+          a.restaurantId,
+          a.rating ?? 0,
+          likedItemsSet.has(a.id)
+        );
+        const sB = computeFinalScore(
+          b.restaurantId,
+          b.rating ?? 0,
+          likedItemsSet.has(b.id)
+        );
+        if (sB !== sA) return sB - sA;
+        return (b.rating ?? 0) - (a.rating ?? 0);
+      });
+    }
+
     return sorted;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy, availableItems, availableRestaurants]);
+  }, [
+    selectedDiet,
+    selectedCuisine,
+    selectedMood,
+    selectedPrice,
+    sortBy,
+    search,
+    availableItems,
+    availableRestaurants,
+    bayesScores,
+    computeFinalScore,
+    likedItemsSet,
+  ]);
 
   const filteredRestaurants = useMemo(() => {
     let list = availableRestaurants.filter((r) => {
@@ -316,18 +665,56 @@ export default function ExploreHomeScreen({
               });
             });
 
-      return cuisineMatch && moodMatch && dietMatch && priceMatch;
+      // search term filtering for restaurants list
+      const term = search.trim().toLowerCase();
+      const searchMatch =
+        term.length === 0 ||
+        String(r.name).toLowerCase().includes(term) ||
+        String(r.location || '').toLowerCase().includes(term) ||
+        String(r.cuisine || '').toLowerCase().includes(term) ||
+        (r.cuisines || []).some((c) => String(c).toLowerCase().includes(term));
+
+      return cuisineMatch && moodMatch && dietMatch && priceMatch && searchMatch;
     });
 
-    if (sortBy === 'rating_desc') list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc') list = [...list].sort(
-      (a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0)
-    );
-    else if (sortBy === 'price_desc') list = [...list].sort(
-      (a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0)
-    );
+    if (sortBy === 'rating_desc') {
+      list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sortBy === 'price_asc') {
+      list = [...list].sort(
+        (a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0)
+      );
+    } else if (sortBy === 'price_desc') {
+      list = [...list].sort(
+        (a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0)
+      );
+    } else if (sortBy === 'relevance') {
+      list = [...list].sort((a, b) => {
+        const probA = bayesScores.has(a.id)
+          ? clamp01(bayesScores.get(a.id) ?? 0)
+          : -1;
+        const probB = bayesScores.has(b.id)
+          ? clamp01(bayesScores.get(b.id) ?? 0)
+          : -1;
+        if (probB !== probA) return probB - probA;
+        const sA = computeFinalScore(a.id, a.rating ?? 0);
+        const sB = computeFinalScore(b.id, b.rating ?? 0);
+        if (sB !== sA) return sB - sA;
+        return (b.rating ?? 0) - (a.rating ?? 0);
+      });
+    }
     return list;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, sortBy, availableRestaurants, availableItems]);
+  }, [
+    selectedDiet,
+    selectedCuisine,
+    selectedMood,
+    selectedPrice,
+    sortBy,
+    search,
+    availableRestaurants,
+    availableItems,
+    bayesScores,
+    computeFinalScore,
+  ]);
 
   const topRestaurants = useMemo(() => filteredRestaurants.slice(0, 4), [filteredRestaurants]);
   const restaurantsWithCTA = useMemo(() => {
@@ -359,22 +746,35 @@ export default function ExploreHomeScreen({
   // simple loading/error screens
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#FFF5ED', alignItems: 'center', justifyContent: 'center' }}>
-        <Text>Loading…</Text>
-      </View>
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: '#FFF5ED' }}
+        edges={['top', 'right', 'bottom', 'left']}
+      >
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text>Loading…</Text>
+        </View>
+      </SafeAreaView>
     );
   }
   if (loadError) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#FFF5ED', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <Text style={{ color: 'red', textAlign: 'center' }}>{loadError}</Text>
-      </View>
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: '#FFF5ED' }}
+        edges={['top', 'right', 'bottom', 'left']}
+      >
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <Text style={{ color: 'red', textAlign: 'center' }}>{loadError}</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // ------------------- UI (unchanged) -------------------
+  // ------------------- UI (your original design) -------------------
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFF5ED', paddingTop: 0 }}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: '#FFF5ED', paddingTop: 0 }}
+      edges={['top', 'right', 'bottom', 'left']}
+    >
       <StatusBar backgroundColor="#FF4D00" barStyle="light-content" />
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -471,7 +871,10 @@ export default function ExploreHomeScreen({
         <View style={styles.divider} />
 
         {/* Restaurants */}
-        <SectionTitle title="Recommended Restaurants" />
+        <SectionTitle
+          title="Recommended Restaurants"
+          right={sortBy === 'relevance' && bayesScores.size ? 'Personalized' : undefined}
+        />
         <FlatList
           data={(() => {
             const tr = filteredRestaurants.slice(0, 4);
@@ -497,10 +900,29 @@ export default function ExploreHomeScreen({
             ) : (
               <TouchableOpacity
                 style={styles.restaurantCard}
-                onPress={() => navigation.navigate('RestaurantDetail', { restaurant: r })}
+                onPress={() => handlePressRestaurant(r)}
               >
                 <Text style={styles.restaurantName}>{r.name}</Text>
                 <Text style={styles.itemTags}>{r.location} - {r.cuisine}</Text>
+
+                {/* show % match whenever we have a Bayes score */}
+                {bayesScores.has(r.id) ? (
+                  <View style={{ marginTop: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <Badge text={`${pct(bayesScores.get(r.id))}% match`} color="#E6FFED" />
+                    </View>
+                    <View style={{ height: 6, backgroundColor: '#FFE8D2', borderRadius: 6, overflow: 'hidden' }}>
+                      <View
+                        style={{
+                          height: '100%',
+                          width: `${pct(bayesScores.get(r.id))}%`,
+                          backgroundColor: '#22C55E',
+                        }}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+
                 <View style={styles.badgeRow}>
                   <Badge text={`Rating ${r.rating ?? '-'}`} color="#FFD89E" />
                   <Badge text={r.averagePrice} />
@@ -538,10 +960,21 @@ export default function ExploreHomeScreen({
             ) : (
               <TouchableOpacity
                 style={styles.itemCard}
-                onPress={() => navigation.navigate('PreferenceItemDetail', { item })}
+                onPress={() => handlePressItem(item)}
               >
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemTags}>{item.restaurant}</Text>
+
+                {/* % match from the item's restaurant when score exists */}
+                {bayesScores.has(item.restaurantId) ? (
+                  <View style={{ marginTop: 6 }}>
+                    <Badge
+                      text={`${pct(bayesScores.get(item.restaurantId))}% match`}
+                      color="#E6FFED"
+                    />
+                  </View>
+                ) : null}
+
                 <View style={styles.badgeRow}>
                   <Badge text={item.price} color="#FFA94D" />
                   <Badge text={item.type} color="#FFF0E0" />
@@ -555,7 +988,7 @@ export default function ExploreHomeScreen({
         />
         <View style={[styles.divider, { marginBottom: 24 }]} />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

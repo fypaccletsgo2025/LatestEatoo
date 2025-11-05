@@ -3,15 +3,33 @@ import React, { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { getFoodlists } from '../state/foodlistsStore';
+import { getFoodlists, loadFoodlists, onFoodlistsChange } from '../state/foodlistsStore';
 
 export default function FoodlistMainScreen({ navigation }) {
   const [foodlists, setFoodlists] = useState(getFoodlists());
 
-  // Refresh from the store whenever this screen is focused
+  // Keep local state in sync with store updates
+  React.useEffect(() => {
+    const unsubscribe = onFoodlistsChange((lists) => setFoodlists(lists));
+    return () => unsubscribe();
+  }, []);
+
+  // Refresh from backend when screen gains focus
   useFocusEffect(
     useCallback(() => {
-      setFoodlists(getFoodlists());
+      let isActive = true;
+      (async () => {
+        try {
+          const lists = await loadFoodlists({ force: true });
+          if (isActive) setFoodlists(lists);
+        } catch (e) {
+          console.warn('Failed to load foodlists', e?.message || e);
+          if (isActive) setFoodlists(getFoodlists());
+        }
+      })();
+      return () => {
+        isActive = false;
+      };
     }, [])
   );
 

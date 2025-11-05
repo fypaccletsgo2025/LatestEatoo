@@ -1,9 +1,9 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
-import { styles } from '././RestaurantDetailScreen.styles';
+import { BRAND, styles } from '././RestaurantDetailScreen.styles';
 import { STAR, STAR_OUTLINE } from '././RestaurantDetailScreen.constants';
 
-export function Badge({ text, color = '#e5e7eb' }) {
+export function Badge({ text, color = BRAND.metaBg }) {
   return (
     <View style={[styles.badge, { backgroundColor: color }]}>
       <Text style={styles.badgeText}>{text}</Text>

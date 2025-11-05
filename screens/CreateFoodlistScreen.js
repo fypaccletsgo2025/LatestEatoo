@@ -58,7 +58,8 @@ const toTitleCase = (value) => {
 const normalizeItemDoc = (it) => ({
   id: it.$id,
   name: it.name,
-  restaurant: it.restaurantName || '',
+  restaurantId: it.restaurantId || null,
+  restaurant: it.restaurantName || '', // will enrich from restaurants collection
   rating: typeof it.rating === 'number' ? it.rating : null,
   price: typeof it.priceRM === 'number' ? `RM ${Number(it.priceRM).toFixed(2)}` : null,
   tags: Array.isArray(it.tags) ? it.tags : [],
@@ -80,14 +81,36 @@ export default function CreateFoodlistScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Load candidate items from Appwrite
+  // Load items and enrich restaurant names (ensure session first to avoid auth errors)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setLoading(true);
+        await ensureSession();
+
+        // list items
         const res = await db.listDocuments(DB_ID, COL.items, [Query.limit(200)]);
-        const docs = (res.documents || []).map(normalizeItemDoc);
+        let docs = (res.documents || []).map(normalizeItemDoc);
+
+        // enrich restaurant names by batching IDs (Appwrite limit: 100)
+        const ids = Array.from(new Set(docs.map((d) => d.restaurantId).filter(Boolean)));
+        if (ids.length) {
+          const chunk = (arr, n) => (arr.length ? [arr.slice(0, n), ...chunk(arr.slice(n), n)] : []);
+          const chunks = chunk(ids, 100);
+          const nameMap = new Map();
+
+          for (const batch of chunks) {
+            const r = await db.listDocuments(DB_ID, COL.restaurants, [Query.equal('$id', batch)]);
+            (r.documents || []).forEach((doc) => nameMap.set(doc.$id, doc.name || ''));
+          }
+
+          docs = docs.map((d) => ({
+            ...d,
+            restaurant: nameMap.get(d.restaurantId) || d.restaurant || '',
+          }));
+        }
+
         if (!cancelled) setItems(docs);
       } catch (e) {
         console.warn('Failed to load items:', e?.message || e);
@@ -120,10 +143,8 @@ export default function CreateFoodlistScreen({ navigation }) {
 
     try {
       setSaving(true);
-      // Ensure user has a session (anonymous or real)
       await ensureSession();
 
-      // Current user for ownerId + permissions
       const user = await account.get();
       const userId = user.$id;
 
@@ -133,7 +154,6 @@ export default function CreateFoodlistScreen({ navigation }) {
         ownerId: userId,
       };
 
-      // Scope doc to the current user
       const permissions = [
         Permission.read(Role.user(userId)),
         Permission.update(Role.user(userId)),
@@ -148,13 +168,13 @@ export default function CreateFoodlistScreen({ navigation }) {
         permissions
       );
 
-      // Optimistic local state for instant UI
+      // Optimistic local state
       updateFoodlists((prev) => [
         ...prev,
         {
           id: created.$id,
           name: created.name,
-          items: selectedItems, // keep full items locally for display
+          items: selectedItems,
           itemIds: created.itemIds,
           ownerId: userId,
         },

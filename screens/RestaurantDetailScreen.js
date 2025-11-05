@@ -46,6 +46,7 @@ import {
   STEP_ARRIVAL_RADIUS_METERS,
 } from '../LocationNav/RestaurantDetailScreen.constants';
 import {
+  BRAND,
   DARK_MAP_STYLE,
   styles,
 } from '../LocationNav/RestaurantDetailScreen.styles';
@@ -63,18 +64,6 @@ import {
   haversineDistance,
   stripHtml,
 } from '../LocationNav/RestaurantDetailScreen.helpers';
-
-// ---- Brand palette (for inline text colors) ----
-const BRAND = {
-  primary: '#FF4D00',
-  bg: '#FFF5ED',
-  surface: '#FFFFFF',
-  line: '#FFE8D2',
-  ink: '#3C1E12',
-  inkMuted: '#6B4A3F',
-  metaBg: '#FFE8D2',
-  accent: '#FFD4AF',
-};
 
 // ---- Google Maps API key resolution ----
 const GOOGLE_MAPS_API_KEY =
@@ -153,7 +142,6 @@ async function fetchRestaurant(restaurantId) {
   return {
     ...doc,
     cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
-  //  ambience optional in your schema; default to array to keep UI safe:
     ambience: Array.isArray(doc.ambience) ? doc.ambience : [],
   };
 }
@@ -841,7 +829,7 @@ export default function RestaurantDetailScreen() {
   if (!passedRestaurant && !restaurantId) {
     return (
       <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <Text style={{ color: 'red', padding: 16 }}>No restaurant specified</Text>
+        <Text style={{ color: BRAND.primary, padding: 16 }}>No restaurant specified</Text>
       </View>
     );
   }
@@ -849,7 +837,7 @@ export default function RestaurantDetailScreen() {
   if (loading) {
     return (
       <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <Text>Loading…</Text>
+        <Text style={{ color: BRAND.inkMuted }}>Loading…</Text>
       </View>
     );
   }
@@ -857,7 +845,7 @@ export default function RestaurantDetailScreen() {
   if (error || !restaurant) {
     return (
       <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}>
-        <Text style={{ color: 'red', padding: 16 }}>{error || 'Restaurant not found'}</Text>
+        <Text style={{ color: BRAND.primary, padding: 16 }}>{error || 'Restaurant not found'}</Text>
       </View>
     );
   }
@@ -895,35 +883,49 @@ export default function RestaurantDetailScreen() {
           >
             <View style={styles.userMarkerHalo}>
               <View style={styles.userMarker}>
-                <Ionicons name="navigate" size={22} color="#2563eb" />
+                <Ionicons name="navigate" size={22} color={BRAND.blue} />
               </View>
             </View>
           </Marker>
         ) : null}
 
-        { (navigationActive ? routePolyline : previewPolyline).length > 0 && (
+        {(navigationActive ? routePolyline : previewPolyline).length > 0 && (
           <MapPolyline
             coordinates={navigationActive ? routePolyline : previewPolyline}
             strokeWidth={5}
-            strokeColor="#2563eb"
+            strokeColor={BRAND.blue}
           />
         )}
 
         {nextStep?.endLocation ? (
           <Marker coordinate={nextStep.endLocation} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.turnPin}>
-              <Ionicons name={getArrowIcon(nextStep.maneuver)} size={16} color="#fff" />
+              <Ionicons
+                name={getArrowIcon(nextStep.maneuver)}
+                size={16}
+                color={BRAND.surface}
+              />
             </View>
           </Marker>
         ) : null}
       </MapView>
 
       {nextStep ? (
-        <View style={[styles.banner, { top: insets.top + 16 }]} pointerEvents="auto">
+        <View
+          style={[
+            styles.banner,
+            {
+              top: insets.top + 16,
+              backgroundColor: BRAND.primary,
+              borderColor: BRAND.line,
+            },
+          ]}
+          pointerEvents="auto"
+        >
           <Ionicons
             name={getArrowIcon(nextStep.maneuver)}
             size={32}
-            color="#fff"
+            color={BRAND.surface}
             style={styles.bannerIcon}
           />
           <View style={{ flex: 1, position: 'relative' }}>
@@ -941,7 +943,7 @@ export default function RestaurantDetailScreen() {
                 <Ionicons
                   name={getArrowIcon(routeSteps[currentStepIndex + 1].maneuver)}
                   size={16}
-                  color="#fff"
+                  color={BRAND.ink}
                 />
               </View>
             ) : null}
@@ -955,7 +957,7 @@ export default function RestaurantDetailScreen() {
           pointerEvents="box-none"
         >
           <TouchableOpacity style={styles.navigationStopButton} onPress={stopNavigation} activeOpacity={0.85}>
-            <Ionicons name="close" size={20} color="#111827" />
+            <Ionicons name="close" size={20} color={BRAND.ink} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -968,15 +970,15 @@ export default function RestaurantDetailScreen() {
               navigationActive && navSummary
                 ? insets.top + 180
                 : nextStep
-                  ? insets.top + 150
-                  : insets.top + 16,
+                ? insets.top + 150
+                : insets.top + 16,
           },
         ]}
         pointerEvents="box-none"
       >
         {showRecenter ? (
           <TouchableOpacity style={styles.mapButton} onPress={recenterToUser} activeOpacity={0.85}>
-            <Ionicons name="locate-outline" size={18} color="#111827" />
+            <Ionicons name="locate-outline" size={18} color={BRAND.ink} />
             <Text style={styles.mapButtonText}>Recenter</Text>
           </TouchableOpacity>
         ) : null}
@@ -985,7 +987,11 @@ export default function RestaurantDetailScreen() {
           <TouchableOpacity
             style={[
               styles.mapButton,
-              { marginTop: 8, backgroundColor: GOOGLE_MAPS_API_KEY ? '#ffffff' : '#ffebee' },
+              {
+                marginTop: 8,
+                backgroundColor: GOOGLE_MAPS_API_KEY ? BRAND.surface : BRAND.accentSoft,
+                borderColor: BRAND.line,
+              },
             ]}
             onPress={() => {
               if (!userCoords) {
@@ -1014,12 +1020,12 @@ export default function RestaurantDetailScreen() {
             <Ionicons
               name={GOOGLE_MAPS_API_KEY ? 'play-outline' : 'alert-circle-outline'}
               size={18}
-              color={GOOGLE_MAPS_API_KEY ? '#111827' : '#d32f2f'}
+              color={GOOGLE_MAPS_API_KEY ? BRAND.ink : BRAND.primary}
             />
             <Text
               style={[
                 styles.mapButtonText,
-                { color: GOOGLE_MAPS_API_KEY ? '#111827' : '#d32f2f' },
+                { color: GOOGLE_MAPS_API_KEY ? BRAND.ink : BRAND.primary },
               ]}
             >
               Resume
@@ -1028,14 +1034,18 @@ export default function RestaurantDetailScreen() {
         )}
       </View>
 
-      <Animated.View style={[
-        styles.sheetBase,
-        {
-          height: windowHeight + insets.bottom,
-          paddingBottom: insets.bottom + 24,
-          transform: [{ translateY: sheetTranslateY }],
-        },
-      ]}>
+      <Animated.View
+        style={[
+          styles.sheetBase,
+          {
+            height: windowHeight + insets.bottom,
+            paddingBottom: insets.bottom + 24,
+            transform: [{ translateY: sheetTranslateY }],
+            backgroundColor: BRAND.surface,
+            borderTopColor: BRAND.line,
+          },
+        ]}
+      >
         <View style={styles.handle} {...panResponder.panHandlers}>
           <View style={styles.grabber} />
         </View>
@@ -1079,23 +1089,30 @@ export default function RestaurantDetailScreen() {
                 }
               }}
             >
-              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color="#fff" />
+              <Ionicons
+                name={saved ? 'bookmark' : 'bookmark-outline'}
+                size={20}
+                color={BRAND.surface}
+              />
             </TouchableOpacity>
 
             <Text style={styles.name}>{restaurantName}</Text>
             <Text style={styles.meta}>{restaurantLocation}</Text>
 
             <View style={styles.badgeRow}>
-              <Badge text={`${restaurant.rating ?? '-'} ${STAR}`} color="#fde68a" />
+              <Badge text={`${restaurant.rating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
               {typeof restaurant.averagePriceValue === 'number' ? (
                 <Badge text={`RM${restaurant.averagePriceValue}`} />
               ) : null}
-              {cuisinesLabel ? <Badge text={cuisinesLabel} color="#e0e7ff" /> : null}
+              {cuisinesLabel ? <Badge text={cuisinesLabel} color={BRAND.metaBg} /> : null}
             </View>
 
             <View style={styles.actionsRow}>
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: navigationActive ? '#dc2626' : '#111827' }]}
+                style={[
+                  styles.actionBtn,
+                  { backgroundColor: navigationActive ? BRAND.primary : BRAND.ink },
+                ]}
                 onPress={() => {
                   if (navigationActive) {
                     stopNavigation();
@@ -1123,7 +1140,9 @@ export default function RestaurantDetailScreen() {
                   }
                 }}
               >
-                <Text style={styles.actionText}>{navigationActive ? 'Stop' : 'Start'}</Text>
+                <Text style={styles.actionText}>
+                  {navigationActive ? 'Stop' : 'Start'}
+                </Text>
               </TouchableOpacity>
 
               <ReviewButton
@@ -1137,7 +1156,7 @@ export default function RestaurantDetailScreen() {
                 <Ionicons
                   name="car-outline"
                   size={16}
-                  color="#111827"
+                  color={BRAND.ink}
                   style={styles.previewRouteIcon}
                 />
                 <Text style={styles.previewRouteText}>
@@ -1157,10 +1176,10 @@ export default function RestaurantDetailScreen() {
                 <Text style={styles.nextStepInstruction}>{nextStep.instruction}</Text>
                 <View style={styles.nextStepMeta}>
                   {nextStep.maneuver ? (
-                    <Badge text={formatManeuverLabel(nextStep.maneuver)} color="#bfdbfe" />
+                    <Badge text={formatManeuverLabel(nextStep.maneuver)} color={BRAND.metaBg} />
                   ) : null}
                   {nextStep.distance ? <Badge text={nextStep.distance} /> : null}
-                  {nextStep.duration ? <Badge text={nextStep.duration} color="#d1fae5" /> : null}
+                  {nextStep.duration ? <Badge text={nextStep.duration} color={BRAND.accentSoft} /> : null}
                 </View>
               </View>
             ) : null}
@@ -1197,8 +1216,8 @@ export default function RestaurantDetailScreen() {
                   <Text style={styles.itemName}>{item.name}</Text>
                   <View style={styles.badgeRow}>
                     <Badge text={item.price ?? toRM(item.priceRM)} />
-                    <Badge text={toTitleCase(item.type)} color="#e0e7ff" />
-                    {item.rating ? <Badge text={`${item.rating} ${STAR}`} color="#fde68a" /> : null}
+                    <Badge text={toTitleCase(item.type)} color={BRAND.metaBg} />
+                    {item.rating ? <Badge text={`${item.rating} ${STAR}`} color={BRAND.accentSoft} /> : null}
                   </View>
                 </TouchableOpacity>
               )}
@@ -1219,13 +1238,13 @@ export default function RestaurantDetailScreen() {
                   {review.taste || review.location || review.coziness ? (
                     <View style={styles.badgeRow}>
                       {typeof review.taste === 'number' && (
-                        <Badge text={`Taste ${review.taste} ${STAR}`} color="#fde68a" />
+                        <Badge text={`Taste ${review.taste} ${STAR}`} color={BRAND.accentSoft} />
                       )}
                       {typeof review.location === 'number' && (
-                        <Badge text={`Location ${review.location} ${STAR}`} color="#fde68a" />
+                        <Badge text={`Location ${review.location} ${STAR}`} color={BRAND.accentSoft} />
                       )}
                       {typeof review.coziness === 'number' && (
-                        <Badge text={`Coziness ${review.coziness} ${STAR}`} color="#fde68a" />
+                        <Badge text={`Coziness ${review.coziness} ${STAR}`} color={BRAND.accentSoft} />
                       )}
                     </View>
                   ) : null}
@@ -1251,7 +1270,7 @@ function ReviewButton({ restaurantId, onReviewAdded }) {
   return (
     <>
       <TouchableOpacity
-        style={[styles.actionBtn, { backgroundColor: '#007AFF' }]}
+        style={[styles.actionBtn, { backgroundColor: BRAND.blue }]}
         onPress={() => {
           setShowReview(true);
           setSubmitted(false);
@@ -1276,13 +1295,14 @@ function ReviewButton({ restaurantId, onReviewAdded }) {
                 <Text style={styles.modalLabel}>Comments (optional)</Text>
                 <TextInput
                   placeholder="Share more about your experience"
+                  placeholderTextColor={BRAND.inkMuted}
                   value={comment}
                   onChangeText={setComment}
                   style={styles.input}
                   multiline
                 />
                 <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: '#111827' }]}
+                  style={[styles.submitBtn, { backgroundColor: BRAND.ink }]}
                   onPress={() => {
                     const overall = Math.round(((taste || 0) + (location || 0) + (coziness || 0)) / 3) || 0;
                     const newReview = {
@@ -1304,19 +1324,19 @@ function ReviewButton({ restaurantId, onReviewAdded }) {
                 >
                   <Text style={styles.submitText}>Submit</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: '#6b7280' }]}
-                  onPress={() => setShowReview(false)}
-                >
-                  <Text style={styles.submitText}>Cancel</Text>
-                </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: BRAND.inkMuted }]}
+              onPress={() => setShowReview(false)}
+            >
+              <Text style={styles.submitText}>Cancel</Text>
+            </TouchableOpacity>
               </>
             ) : (
               <View style={styles.modalSuccess}>
                 <Text style={styles.modalTitle}>Thank you!</Text>
                 <Text style={styles.modalHelper}>Your review has been submitted.</Text>
                 <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: '#007AFF', marginTop: 12 }]}
+                  style={[styles.submitBtn, { backgroundColor: BRAND.blue, marginTop: 12 }]}
                   onPress={() => setShowReview(false)}
                 >
                   <Text style={styles.submitText}>Close</Text>
