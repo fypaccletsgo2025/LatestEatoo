@@ -223,77 +223,87 @@ export default function CreateFoodlistScreen({ navigation }) {
     return list;
   }, [items, query, sortKey]);
 
-  const Header = () => (
-    <View style={styles.headerWrap}>
-      <View style={styles.headerBar}>
-        <BackButton onPress={() => navigation.goBack()} />
+  // ---------- MEMOIZED HEADER ELEMENT ----------
+  const HeaderEl = useMemo(() => {
+    return (
+      <View style={styles.headerWrap}>
+        <View style={styles.headerBar}>
+          <BackButton onPress={() => navigation.goBack()} />
 
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={styles.headerTitle}>Create Foodlist</Text>
-          <Text style={styles.headerSubtitle}>
-            {selectedItems.length > 0 ? `${selectedItems.length} selected` : 'Pick your favourites'}
-          </Text>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={styles.headerTitle}>Create Foodlist</Text>
+            <Text style={styles.headerSubtitle}>
+              {selectedItems.length > 0 ? `${selectedItems.length} selected` : 'Pick your favourites'}
+            </Text>
+          </View>
+
+          <View style={{ width: 40, height: 40 }} />
         </View>
 
-        <View style={{ width: 40, height: 40 }} />
-      </View>
-
-      <View style={styles.inputCard}>
-        <Text style={styles.inputLabel}>Foodlist name</Text>
-        <TextInput
-          placeholder="e.g., Lunch under RM20"
-          value={name}
-          onChangeText={setName}
-          style={styles.textInput}
-          placeholderTextColor={BRAND.inkMuted}
-          accessibilityLabel="Foodlist name"
-          returnKeyType="done"
-        />
-      </View>
-
-      <View style={styles.controls}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={16} color={BRAND.inkMuted} />
+        <View style={styles.inputCard}>
+          <Text style={styles.inputLabel}>Foodlist name</Text>
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search items, restaurants, or tags"
+            placeholder="e.g., Lunch under RM20"
+            value={name}
+            onChangeText={setName}
+            style={styles.textInput}
             placeholderTextColor={BRAND.inkMuted}
-            value={query}
-            onChangeText={setQuery}
-            accessibilityLabel="Search items"
+            accessibilityLabel="Foodlist name"
+            returnKeyType="done"
+            blurOnSubmit={false}
+            onFocus={() => setIsTyping(true)}
+            onBlur={() => setIsTyping(false)}
           />
-          {query ? (
-            <TouchableOpacity
-              onPress={() => setQuery('')}
-              accessibilityRole="button"
-              accessibilityLabel="Clear search"
-            >
-              <Ionicons name="close-circle" size={18} color={BRAND.inkMuted} />
-            </TouchableOpacity>
-          ) : null}
         </View>
 
-        <View style={styles.sortRow}>
-          {SORTS.map((s) => {
-            const active = s.key === sortKey;
-            return (
+        <View style={styles.controls}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={16} color={BRAND.inkMuted} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search items, restaurants, or tags"
+              placeholderTextColor={BRAND.inkMuted}
+              value={query}
+              onChangeText={setQuery}
+              accessibilityLabel="Search items"
+              blurOnSubmit={false}
+              onFocus={() => setIsTyping(true)}
+              onBlur={() => setIsTyping(false)}
+            />
+            {query ? (
               <TouchableOpacity
-                key={s.key}
-                style={[styles.pill, active && styles.pillActive]}
-                onPress={() => setSortKey(s.key)}
+                onPress={() => setQuery('')}
                 accessibilityRole="button"
-                accessibilityLabel={`Sort by ${s.label}`}
+                accessibilityLabel="Clear search"
               >
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>{s.label}</Text>
+                <Ionicons name="close-circle" size={18} color={BRAND.inkMuted} />
               </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
+            ) : null}
+          </View>
 
-      <Text style={styles.sectionTitle}>Select items</Text>
-    </View>
-  );
+          <View style={styles.sortRow}>
+            {SORTS.map((s) => {
+              const active = s.key === sortKey;
+              return (
+                <TouchableOpacity
+                  key={s.key}
+                  style={[styles.pill, active && styles.pillActive]}
+                  onPress={() => setSortKey(s.key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sort by ${s.label}`}
+                >
+                  <Text style={[styles.pillText, active && styles.pillTextActive]}>{s.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Select items</Text>
+      </View>
+    );
+    // dependencies that should re-create header element when necessary
+  }, [name, selectedItems.length, query, sortKey, navigation]);
 
   const Empty = () => (
     <View style={styles.empty}>
@@ -370,8 +380,8 @@ export default function CreateFoodlistScreen({ navigation }) {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={insets.top}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         <View style={styles.container}>
           {loading ? (
@@ -384,12 +394,16 @@ export default function CreateFoodlistScreen({ navigation }) {
             data={filteredSortedItems}
             keyExtractor={(item, idx) => String(item?.id ?? idx)}
             renderItem={renderItem}
-            ListHeaderComponent={<Header />}
+            ListHeaderComponent={HeaderEl}               // <-- memoized element
             ListEmptyComponent={<Empty />}
             ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
             contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="on-drag"
+            removeClippedSubviews={false}
+            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
+            initialNumToRender={8}
           />
 
           {/* Safe-bottom action bar (orange) */}

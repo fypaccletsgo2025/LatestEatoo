@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -148,7 +149,8 @@ export default function LibraryScreen({ onScrollDirectionChange }) {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
+    <SafeAreaView style={styles.safeArea} edges={['right', 'bottom', 'left']}>
+      <StatusBar backgroundColor={THEME_COLOR} barStyle="light-content" translucent />
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 24 }}

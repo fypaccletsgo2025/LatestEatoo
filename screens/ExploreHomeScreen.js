@@ -810,9 +810,9 @@ export default function ExploreHomeScreen({
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: '#FFF5ED', paddingTop: 0 }}
-      edges={['top', 'right', 'bottom', 'left']}
+      edges={['right', 'bottom', 'left']}
     >
-      <StatusBar backgroundColor="#FF4D00" barStyle="light-content" />
+      <StatusBar backgroundColor="#FF4D00" barStyle="light-content" translucent />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
