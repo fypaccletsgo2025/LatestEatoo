@@ -72,7 +72,7 @@ function Post({ post }) {
   );
 }
 
-export default function UpdatesScreen() {
+export default function UpdatesScreen({ onScrollDirectionChange }) {
   const [feed, setFeed] = React.useState(getUpdates());
   const [modalVisible, setModalVisible] = React.useState(false);
 
@@ -158,6 +158,43 @@ export default function UpdatesScreen() {
     setModalVisible(false);
   };
 
+  const scrollOffsetRef = React.useRef(0);
+  const lastDirectionRef = React.useRef('down');
+  const reportScrollDirection = React.useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange]
+  );
+
+  React.useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = React.useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection]
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: BG_COLOR }}>
       <FlatList
@@ -173,6 +210,8 @@ export default function UpdatesScreen() {
             <View style={styles.feedDivider} />
           </>
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       />
 
       {/* Modal composer with working @mentions */}

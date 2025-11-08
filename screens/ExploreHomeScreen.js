@@ -1,5 +1,5 @@
 // ExploreHomeScreen.js
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -31,6 +31,7 @@ export default function ExploreHomeScreen({
   onOpenDrawer,
   onStartQuestionnaire,
   externalSelections,
+  onScrollDirectionChange,
 }) {
   const navigation = useNavigation();
 
@@ -47,6 +48,42 @@ export default function ExploreHomeScreen({
   // -------- UI state --------
   const [sortBy, setSortBy] = useState('relevance');
   const [search, setSearch] = useState('');
+  const scrollOffsetRef = useRef(0);
+  const lastDirectionRef = useRef('down');
+  const reportScrollDirection = useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange],
+  );
+
+  useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection],
+  );
 
   // ---------- helpers ----------
   const toRM = (n) => (n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`);
@@ -777,7 +814,11 @@ export default function ExploreHomeScreen({
     >
       <StatusBar backgroundColor="#FF4D00" barStyle="light-content" />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
         {/* Header */}
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle}>Discover Food For You</Text>

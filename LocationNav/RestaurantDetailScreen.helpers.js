@@ -75,27 +75,47 @@ const fallbackLocations = [
   },
 ];
 
+const toFiniteNumber = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeCoordinate = (candidate = {}) => {
+  const latitude =
+    toFiniteNumber(candidate.latitude) ??
+    toFiniteNumber(candidate.lat);
+  const longitude =
+    toFiniteNumber(candidate.longitude) ??
+    toFiniteNumber(candidate.lng) ??
+    toFiniteNumber(candidate.lon) ??
+    toFiniteNumber(candidate.long);
+
+  if (latitude == null || longitude == null) {
+    return null;
+  }
+
+  return { latitude, longitude };
+};
+
 export function deriveCoordinate(restaurant) {
   if (!restaurant) {
     return MALAYSIA_CENTER;
   }
 
-  if (
-    restaurant.coordinates &&
-    typeof restaurant.coordinates.latitude === 'number' &&
-    typeof restaurant.coordinates.longitude === 'number'
-  ) {
-    return {
-      latitude: restaurant.coordinates.latitude,
-      longitude: restaurant.coordinates.longitude,
-    };
+  const primary = normalizeCoordinate(restaurant.coordinates);
+  if (primary) {
+    return primary;
   }
 
-  if (
-    typeof restaurant.latitude === 'number' &&
-    typeof restaurant.longitude === 'number'
-  ) {
-    return { latitude: restaurant.latitude, longitude: restaurant.longitude };
+  const secondary = normalizeCoordinate(restaurant);
+  if (secondary) {
+    return secondary;
   }
 
   const locationText = (restaurant.location || '').toLowerCase();

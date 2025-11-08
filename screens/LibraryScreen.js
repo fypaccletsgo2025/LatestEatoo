@@ -35,7 +35,7 @@ async function fetchByIds(collectionId, ids) {
   return res.documents || [];
 }
 
-export default function LibraryScreen() {
+export default function LibraryScreen({ onScrollDirectionChange }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
 
@@ -110,12 +110,51 @@ export default function LibraryScreen() {
     refresh({ forceFoodlists: true });
   }, [isFocused, refresh]);
 
+  const scrollOffsetRef = React.useRef(0);
+  const lastDirectionRef = React.useRef('down');
+  const reportScrollDirection = React.useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange]
+  );
+
+  React.useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = React.useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection]
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle}>Your Library</Text>

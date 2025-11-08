@@ -14,12 +14,48 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 
-export default function AddRestaurantScreen() {
+export default function AddRestaurantScreen({ onScrollDirectionChange }) {
   const [name, setName] = React.useState('');
   const [location, setLocation] = React.useState('');
   const [cuisine, setCuisine] = React.useState('');
   const [contact, setContact] = React.useState('');
   const [notes, setNotes] = React.useState('');
+  const scrollOffsetRef = React.useRef(0);
+  const lastDirectionRef = React.useRef('down');
+  const reportScrollDirection = React.useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange]
+  );
+
+  React.useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = React.useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection]
+  );
 
   const submit = () => {
     if (!name.trim() || !location.trim()) {
@@ -48,6 +84,8 @@ export default function AddRestaurantScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           contentContainerStyle={{ paddingBottom: 60 }}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           {/* Header (scrollable like homepage) */}
           <View style={styles.headerContainer}>

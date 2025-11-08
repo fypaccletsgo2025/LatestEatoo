@@ -1,5 +1,5 @@
 // screens/SearchScreen.js
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -63,12 +63,53 @@ const normalizeRestaurantDoc = (r) => ({
   cuisines: Array.isArray(r.cuisines) ? r.cuisines : [],
 });
 
-export default function SearchScreen({ navigation, initialQuery = '', onQueryChange }) {
+export default function SearchScreen({
+  navigation,
+  initialQuery = '',
+  onQueryChange,
+  onScrollDirectionChange,
+}) {
   const [query, setQuery] = useState(initialQuery || '');
   const [imageError, setImageError] = useState({});
   const [items, setItems] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const scrollOffsetRef = useRef(0);
+  const lastDirectionRef = useRef('down');
+  const reportScrollDirection = useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange]
+  );
+
+  useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection]
+  );
 
   // Keep query in sync if parent passes a new initialQuery
   useEffect(() => {
@@ -159,7 +200,12 @@ export default function SearchScreen({ navigation, initialQuery = '', onQueryCha
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
-      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.container}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
         <Text style={styles.title}>Search</Text>
 
         {/* Query */}

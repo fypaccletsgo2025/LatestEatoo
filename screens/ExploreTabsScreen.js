@@ -1,5 +1,5 @@
 // screens/ExploreTabsScreen.js
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPQ, setShowPQ] = useState(false);
+  const [tabBarHiddenByScroll, setTabBarHiddenByScroll] = useState(false);
   const preferenceSelections = usePreferenceSelections();
 
   const rawName = (currentUser?.name || currentUser?.fullName || '').trim();
@@ -81,7 +82,20 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
     ],
     []
   );
-  const isTabBarVisible = !drawerOpen && !showPQ;
+
+  const handleScrollDirectionChange = useCallback((direction) => {
+    if (direction === 'up') {
+      setTabBarHiddenByScroll(true);
+    } else if (direction === 'down') {
+      setTabBarHiddenByScroll(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setTabBarHiddenByScroll(false);
+  }, [tab]);
+
+  const isTabBarVisible = !drawerOpen && !showPQ && !tabBarHiddenByScroll;
 
   return (
     <SafeAreaView
@@ -127,12 +141,26 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
               setShowPQ(true);
             }}
             externalSelections={preferenceSelections}
+            onScrollDirectionChange={handleScrollDirectionChange}
           />
         )}
-        {tab === 'search' && <SearchScreen navigation={navigation} />}
-        {tab === 'add' && <AddRestaurantScreen />}
-        {tab === 'review' && <UpdatesScreen />}
-        {tab === 'library' && <LibraryScreen />}
+        {tab === 'search' && (
+          <SearchScreen
+            navigation={navigation}
+            onScrollDirectionChange={handleScrollDirectionChange}
+          />
+        )}
+        {tab === 'add' && (
+          <AddRestaurantScreen
+            onScrollDirectionChange={handleScrollDirectionChange}
+          />
+        )}
+        {tab === 'review' && (
+          <UpdatesScreen onScrollDirectionChange={handleScrollDirectionChange} />
+        )}
+        {tab === 'library' && (
+          <LibraryScreen onScrollDirectionChange={handleScrollDirectionChange} />
+        )}
       </View>
       {drawerOpen && (
         <>
