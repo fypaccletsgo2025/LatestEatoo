@@ -14,7 +14,6 @@ import {
   Dimensions,
   FlatList,
   PanResponder,
-  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -23,6 +22,7 @@ import {
 import MapView, { Marker, Polyline as MapPolyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView } from 'react-native-gesture-handler';
 import * as Location from 'expo-location';
 import { useRoute, useNavigation } from '@react-navigation/native';
 
@@ -857,6 +857,24 @@ export default function RestaurantDetailScreen() {
 
   return (
     <View style={styles.screen}>
+      <View style={{ position: 'absolute', top: insets.top + 10, left: 10, zIndex: 10 }}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.9)',
+            borderRadius: 20,
+            padding: 8,
+            shadowColor: '#000',
+            shadowOpacity: 0.2,
+            shadowRadius: 3,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 5,
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+      </View>
+
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -1149,6 +1167,8 @@ export default function RestaurantDetailScreen() {
                 restaurantId={rid}
                 onReviewAdded={() => setUserReviews(getUserReviews(rid))}
               />
+              <TouchableOpacity onPress={() => navigation.navigate('Review')}>
+              </TouchableOpacity>
             </View>
 
             {!navigationActive && previewSummary ? (
