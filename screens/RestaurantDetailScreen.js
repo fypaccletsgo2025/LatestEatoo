@@ -969,17 +969,6 @@ export default function RestaurantDetailScreen() {
         </View>
       ) : null}
 
-      {navigationActive && nextStep ? (
-        <View
-          style={[styles.navigationStopWrap, { top: insets.top + 16 }]}
-          pointerEvents="box-none"
-        >
-          <TouchableOpacity style={styles.navigationStopButton} onPress={stopNavigation} activeOpacity={0.85}>
-            <Ionicons name="close" size={20} color={BRAND.ink} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
       <View
         style={[
           styles.mapControls,

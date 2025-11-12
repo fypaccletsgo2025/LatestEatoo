@@ -40,6 +40,7 @@ import PrivacyScreen from '../screens/PrivacyScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ManageRestaurantScreen from '../screens/ManageRestaurantScreen';
 import DiscoverResultsScreen from '../screens/DiscoverResultsScreen';
+import ReviewScreen from '../screens/ReviewScreen';
 
 const Stack = createStackNavigator();
 
@@ -188,6 +189,14 @@ export default function AppNavigator() {
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="ManageRestaurant" component={ManageRestaurantScreen} />
             <Stack.Screen name="DiscoverResults" component={DiscoverResultsScreen} />
+            <Stack.Screen
+              name="Review"
+              component={ReviewScreen}
+              options={{
+                presentation: 'card', // 👈 ensures full-screen navigation, not modal
+                headerShown: false,   // optional: hide header
+              }}
+            />
           </>
         ) : (
           <>

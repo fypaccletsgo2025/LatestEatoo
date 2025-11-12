@@ -1,5 +1,5 @@
 // screens/AddRestaurantScreen.js
-import React from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,9 +20,9 @@ export default function AddRestaurantScreen({ onScrollDirectionChange }) {
   const [cuisine, setCuisine] = React.useState('');
   const [contact, setContact] = React.useState('');
   const [notes, setNotes] = React.useState('');
-  const scrollOffsetRef = React.useRef(0);
-  const lastDirectionRef = React.useRef('down');
-  const reportScrollDirection = React.useCallback(
+  const scrollOffsetRef = useRef(0);
+  const lastDirectionRef = useRef('down');
+  const reportScrollDirection = useCallback(
     (direction) => {
       if (typeof onScrollDirectionChange !== 'function') {
         return;
@@ -33,28 +33,25 @@ export default function AddRestaurantScreen({ onScrollDirectionChange }) {
       lastDirectionRef.current = direction;
       onScrollDirectionChange(direction);
     },
-    [onScrollDirectionChange]
+    [onScrollDirectionChange],
   );
 
-  React.useEffect(() => {
+  useEffect(() => {
     reportScrollDirection('down');
   }, [reportScrollDirection]);
 
-  const handleScroll = React.useCallback(
+  const handleScroll = useCallback(
     (event) => {
       const y = event?.nativeEvent?.contentOffset?.y ?? 0;
       const delta = y - scrollOffsetRef.current;
-      scrollOffsetRef.current = y;
       if (y <= 0) {
         reportScrollDirection('down');
-        return;
+      } else if (delta > 0) { // Only report 'up' when scrolling down, not up
+        reportScrollDirection('up');
       }
-      if (Math.abs(delta) < 8) {
-        return;
-      }
-      reportScrollDirection(delta > 0 ? 'up' : 'down');
+      scrollOffsetRef.current = y;
     },
-    [reportScrollDirection]
+    [reportScrollDirection],
   );
 
   const submit = () => {

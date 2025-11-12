@@ -806,8 +806,8 @@ export default function ExploreHomeScreen({
     );
   }
 
-  // ------------------- UI (your original design) -------------------
   return (
+    // ------------------- UI (your original design) -------------------
     <SafeAreaView
       style={{ flex: 1, backgroundColor: '#FFF5ED', paddingTop: 0 }}
       edges={['right', 'bottom', 'left']}
@@ -1033,6 +1033,14 @@ export default function ExploreHomeScreen({
   );
 }
 
+function Badge({ text, color = '#e5e7eb' }) {
+  return (
+    <View style={{ backgroundColor: color, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
+      <Text style={{ fontSize: 12, color: '#111827' }}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   headerContainer: {
     padding: 22,
@@ -1100,14 +1108,6 @@ function SectionTitle({ title, right, style }) {
       ) : (
         right || null
       )}
-    </View>
-  );
-}
-
-function Badge({ text, color = '#e5e7eb' }) {
-  return (
-    <View style={{ backgroundColor: color, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
-      <Text style={{ fontSize: 12, color: '#111827' }}>{text}</Text>
     </View>
   );
 }

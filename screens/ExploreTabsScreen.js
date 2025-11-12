@@ -7,7 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import ExploreHomeScreen from './ExploreHomeScreen';
 import AddRestaurantScreen from './AddRestaurantScreen';
 import UpdatesScreen from './UpdatesScreen';
-import LibraryScreen from './LibraryScreen';
+import LibraryScreen from './PantryScreen';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import SearchScreen from './SearchScreen';
 import AnimatedPillTabBar from '../components/AnimatedPillTabBar';
@@ -47,7 +47,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
       ? 'Add'
       : tab === 'review'
       ? 'Updates'
-      : 'Library';
+      : 'Pantry';
   const tabItems = useMemo(
     () => [
       {
@@ -75,24 +75,30 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
       },
       {
         key: 'library',
-        label: 'Library',
-        activeIcon: 'book',
-        inactiveIcon: 'book-outline',
+        label: 'Pantry',
+        activeIcon: 'basket',
+        inactiveIcon: 'basket-outline',
       },
     ],
     []
   );
 
   const handleScrollDirectionChange = useCallback((direction) => {
-    if (direction === 'up') {
-      setTabBarHiddenByScroll(true);
-    } else if (direction === 'down') {
-      setTabBarHiddenByScroll(false);
+    if (tab === 'add') {
+      // For "Add" screen: show on scroll down, hide on scroll up to top
+      setTabBarHiddenByScroll(direction === 'down');
+    } else {
+      // Standard behavior for other screens
+      setTabBarHiddenByScroll(direction === 'up');
     }
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
-    setTabBarHiddenByScroll(false);
+    if (tab === 'add') {
+      setTabBarHiddenByScroll(true);
+    } else {
+      setTabBarHiddenByScroll(false);
+    }
   }, [tab]);
 
   const isTabBarVisible = !drawerOpen && !showPQ && !tabBarHiddenByScroll;
@@ -246,7 +252,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
               label="Password & Security"
               onPress={() => {
                 setDrawerOpen(false);
-                navigation.navigate('PasswordSecurity');
+                navigation.navigate('PasswordSecurity', { onLogout });
               }}
             />
             <DrawerItem

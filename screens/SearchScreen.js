@@ -200,15 +200,8 @@ export default function SearchScreen({
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'right', 'bottom', 'left']}>
-      <ScrollView
-        style={styles.container}
-        keyboardShouldPersistTaps="handled"
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-      >
-        <Text style={styles.title}>Search</Text>
-
-        {/* Query */}
+      {/* Non-scrolling search bar and suggestions */}
+      <View style={styles.queryContainer}>
         <View style={styles.searchRow}>
           <Text style={styles.searchIcon}>🔎</Text>
           <TextInput
@@ -221,38 +214,17 @@ export default function SearchScreen({
             autoCapitalize="none"
           />
         </View>
-
-        {/* Autocomplete dropdown */}
         {query.trim().length > 0 && (
-          loading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator color={BRAND.primary} />
-            </View>
-          ) : suggestions.length > 0 ? (
-            <View style={styles.dropdown}>
-              {suggestions.map((s) => (
-                <TouchableOpacity
-                  key={s.id}
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    if (s.kind === 'item') {
-                      navigation.navigate('PreferenceItemDetail', { itemId: s.payload.id });
-                    } else {
-                      navigation.navigate('RestaurantDetail', { restaurantId: s.payload.id });
-                    }
-                  }}
-                >
-                  <Text style={styles.dropdownText}>{s.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>No matches</Text>
-            </View>
-          )
+          <SuggestionsDropdown loading={loading} suggestions={suggestions} navigation={navigation} />
         )}
-
+      </View>
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
         {/* Discover tags */}
         <Text style={styles.sectionTitle}>Discover</Text>
         {loading && discoverTags.length === 0 ? (
@@ -291,10 +263,49 @@ export default function SearchScreen({
   );
 }
 
+function SuggestionsDropdown({ loading, suggestions, navigation }) {
+  if (loading) {
+    return (
+      <View style={styles.loadingBox}>
+        <ActivityIndicator color={BRAND.primary} />
+      </View>
+    );
+  }
+
+  if (suggestions.length > 0) {
+    return (
+      <View style={styles.dropdown}>
+        {suggestions.map((s) => (
+          <TouchableOpacity
+            key={s.id}
+            style={styles.dropdownItem}
+            onPress={() => {
+              if (s.kind === 'item') {
+                navigation.navigate('PreferenceItemDetail', { itemId: s.payload.id });
+              } else {
+                navigation.navigate('RestaurantDetail', { restaurantId: s.payload.id });
+              }
+            }}
+          >
+            <Text style={styles.dropdownText}>{s.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.emptyBox}>
+      <Text style={styles.emptyText}>No matches</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: BRAND.bg },
-  container: { flex: 1, backgroundColor: BRAND.bg, padding: 16 },
-  title: { fontSize: 22, fontWeight: '800', marginBottom: 12, color: BRAND.primary },
+  queryContainer: { paddingHorizontal: 16, paddingTop: 4 },
+  scrollContainer: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 20 },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
