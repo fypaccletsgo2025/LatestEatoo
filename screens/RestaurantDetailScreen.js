@@ -213,6 +213,7 @@ export default function RestaurantDetailScreen() {
   const [userReviews, setUserReviews] = useState(
     restaurantId ? getUserReviews(restaurantId) : [],
   );
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   // ---- Map/navigation states ----
   const windowHeight = Dimensions.get('window').height;
@@ -1153,9 +1154,10 @@ export default function RestaurantDetailScreen() {
               </TouchableOpacity>
 
               <ReviewButton
-                restaurantId={rid}
-                onReviewAdded={() => setUserReviews(getUserReviews(rid))}
-              />
+                  restaurantId={rid}
+                  onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+                  onOpen={() => setShowReviewModal(true)}
+                />
               <TouchableOpacity onPress={() => navigation.navigate('Review')}>
               </TouchableOpacity>
             </View>
@@ -1263,98 +1265,104 @@ export default function RestaurantDetailScreen() {
           ) : null}
         </ScrollView>
       </Animated.View>
+      {/** Review modal moved to root so it overlays everything */}
+      <ReviewModal
+        restaurantId={rid}
+        visible={showReviewModal}
+        onClose={() => setShowReviewModal(false)}
+        onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+      />
     </View>
   );
 }
 
 // ---- Inline review modal using your local store ----
-function ReviewButton({ restaurantId, onReviewAdded }) {
-  const [showReview, setShowReview] = useState(false);
+function ReviewButton({ restaurantId, onReviewAdded, onOpen }) {
+  return (
+    <TouchableOpacity
+      style={[styles.actionBtn, { backgroundColor: BRAND.blue }]}
+      onPress={() => onOpen && onOpen()}
+    >
+      <Text style={styles.actionText}>Review</Text>
+    </TouchableOpacity>
+  );
+}
+
+function ReviewModal({ restaurantId, visible, onClose, onReviewAdded }) {
   const [taste, setTaste] = useState(0);
   const [location, setLocation] = useState(0);
   const [coziness, setCoziness] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  return (
-    <>
-      <TouchableOpacity
-        style={[styles.actionBtn, { backgroundColor: BRAND.blue }]}
-        onPress={() => {
-          setShowReview(true);
-          setSubmitted(false);
-        }}
-      >
-        <Text style={styles.actionText}>Review</Text>
-      </TouchableOpacity>
+  if (!visible) return null;
 
-      {showReview && (
-        <View style={styles.overlay}>
-          <TouchableOpacity style={styles.overlayBg} onPress={() => setShowReview(false)} />
-          <View style={styles.modalCard}>
-            {!submitted ? (
-              <>
-                <Text style={styles.modalTitle}>Leave a Review</Text>
-                <Text style={styles.modalLabel}>Rate Taste</Text>
-                <StarInput value={taste} onChange={setTaste} />
-                <Text style={styles.modalLabel}>Rate Location</Text>
-                <StarInput value={location} onChange={setLocation} />
-                <Text style={styles.modalLabel}>Rate Coziness</Text>
-                <StarInput value={coziness} onChange={setCoziness} />
-                <Text style={styles.modalLabel}>Comments (optional)</Text>
-                <TextInput
-                  placeholder="Share more about your experience"
-                  placeholderTextColor={BRAND.inkMuted}
-                  value={comment}
-                  onChangeText={setComment}
-                  style={styles.input}
-                  multiline
-                />
-                <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: BRAND.ink }]}
-                  onPress={() => {
-                    const overall = Math.round(((taste || 0) + (location || 0) + (coziness || 0)) / 3) || 0;
-                    const newReview = {
-                      user: 'You',
-                      rating: overall,
-                      comment: comment.trim() || undefined,
-                      taste,
-                      location,
-                      coziness,
-                    };
-                    addUserReview(restaurantId, newReview);
-                    onReviewAdded?.();
-                    setSubmitted(true);
-                    setComment('');
-                    setTaste(0);
-                    setLocation(0);
-                    setCoziness(0);
-                  }}
-                >
-                  <Text style={styles.submitText}>Submit</Text>
-                </TouchableOpacity>
+  return (
+    <View style={styles.overlay} pointerEvents="box-none">
+      <TouchableOpacity style={styles.overlayBg} onPress={onClose} />
+      <View style={styles.modalCard}>
+        {!submitted ? (
+          <>
+            <Text style={styles.modalTitle}>Leave a Review</Text>
+            <Text style={styles.modalLabel}>Rate Taste</Text>
+            <StarInput value={taste} onChange={setTaste} />
+            <Text style={styles.modalLabel}>Rate Location</Text>
+            <StarInput value={location} onChange={setLocation} />
+            <Text style={styles.modalLabel}>Rate Coziness</Text>
+            <StarInput value={coziness} onChange={setCoziness} />
+            <Text style={styles.modalLabel}>Comments (optional)</Text>
+            <TextInput
+              placeholder="Share more about your experience"
+              placeholderTextColor={BRAND.inkMuted}
+              value={comment}
+              onChangeText={setComment}
+              style={styles.input}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: BRAND.ink }]}
+              onPress={() => {
+                const overall = Math.round(((taste || 0) + (location || 0) + (coziness || 0)) / 3) || 0;
+                const newReview = {
+                  user: 'You',
+                  rating: overall,
+                  comment: comment.trim() || undefined,
+                  taste,
+                  location,
+                  coziness,
+                };
+                addUserReview(restaurantId, newReview);
+                onReviewAdded?.();
+                setSubmitted(true);
+                setComment('');
+                setTaste(0);
+                setLocation(0);
+                setCoziness(0);
+              }}
+            >
+              <Text style={styles.submitText}>Submit</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: BRAND.inkMuted }]}
-              onPress={() => setShowReview(false)}
+              onPress={onClose}
             >
               <Text style={styles.submitText}>Cancel</Text>
             </TouchableOpacity>
-              </>
-            ) : (
-              <View style={styles.modalSuccess}>
-                <Text style={styles.modalTitle}>Thank you!</Text>
-                <Text style={styles.modalHelper}>Your review has been submitted.</Text>
-                <TouchableOpacity
-                  style={[styles.submitBtn, { backgroundColor: BRAND.blue, marginTop: 12 }]}
-                  onPress={() => setShowReview(false)}
-                >
-                  <Text style={styles.submitText}>Close</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+          </>
+        ) : (
+          <View style={styles.modalSuccess}>
+            <Text style={styles.modalTitle}>Thank you!</Text>
+            <Text style={styles.modalHelper}>Your review has been submitted.</Text>
+            <TouchableOpacity
+              style={[styles.submitBtn, { backgroundColor: BRAND.blue, marginTop: 12 }]}
+              onPress={onClose}
+            >
+              <Text style={styles.submitText}>Close</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-      )}
-    </>
+        )}
+      </View>
+    </View>
   );
 }
+

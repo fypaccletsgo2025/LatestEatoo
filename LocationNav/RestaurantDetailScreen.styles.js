@@ -334,6 +334,8 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
+    zIndex: 9999,
+    elevation: 9999,
   },
   overlayBg: {
     position: 'absolute',
@@ -342,6 +344,8 @@ export const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: BRAND.overlay,
+    zIndex: 9998,
+    elevation: 9998,
   },
   modalCard: {
     width: '100%',
@@ -355,7 +359,8 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    elevation: 10000,
+    zIndex: 10000,
   },
   modalTitle: {
     fontWeight: '800',
