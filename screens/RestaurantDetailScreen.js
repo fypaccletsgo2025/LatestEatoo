@@ -19,7 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline as MapPolyline } from 'react-native-maps';
+import MapView, { Marker, Polyline as MapPolyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScrollView } from 'react-native-gesture-handler';
@@ -74,8 +74,8 @@ const GOOGLE_MAPS_API_KEY =
   '';
 
 // ---- Map camera config ----
-const NAVIGATION_ZOOM = 17.5;
-const NAVIGATION_PITCH = 60;
+const NAVIGATION_ZOOM = 19; // close-in but leaves route visible
+const NAVIGATION_PITCH = 60; // slightly lower tilt to see polyline
 const USER_VERTICAL_TARGET_FRACTION = 0.7;
 const METERS_PER_PIXEL_AT_EQUATOR = 156543.03392;
 const EARTH_RADIUS_METERS = 6378137;
@@ -124,6 +124,21 @@ const toTitleCase = (value) => {
 const toRM = (n) =>
   n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`;
 
+const computeRegionForPoints = (a, b) => {
+  const latCenter = (a.latitude + b.latitude) / 2;
+  const lngCenter = (a.longitude + b.longitude) / 2;
+  const latSpan = Math.abs(a.latitude - b.latitude);
+  const lngSpan = Math.abs(a.longitude - b.longitude);
+  const latitudeDelta = Math.min(0.35, Math.max(0.02, latSpan * 1.6 + 0.02));
+  const longitudeDelta = Math.min(0.35, Math.max(0.02, lngSpan * 1.6 + 0.02));
+  return {
+    latitude: latCenter,
+    longitude: lngCenter,
+    latitudeDelta,
+    longitudeDelta,
+  };
+};
+
 // Avoid functions in navigation params
 function stripFunctions(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -136,11 +151,45 @@ function stripFunctions(obj) {
   return out;
 }
 
+const coerceNumber = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const extractCoordinates = (doc = {}) => {
+  // Support Appwrite "map" field stored as [longitude, latitude]
+  if (Array.isArray(doc.map) && doc.map.length === 2) {
+    const lng = coerceNumber(doc.map[0]);
+    const lat = coerceNumber(doc.map[1]);
+    if (lat != null && lng != null) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  const lat =
+    coerceNumber(doc?.coordinates?.latitude) ??
+    coerceNumber(doc?.coordinates?.lat) ??
+    coerceNumber(doc.latitude) ??
+    coerceNumber(doc.lat);
+  const lng =
+    coerceNumber(doc?.coordinates?.longitude) ??
+    coerceNumber(doc?.coordinates?.lng) ??
+    coerceNumber(doc.longitude) ??
+    coerceNumber(doc.lng);
+  if (lat == null || lng == null) return null;
+  return { latitude: lat, longitude: lng };
+};
+
 // ---- Appwrite fetch helpers ----
 async function fetchRestaurant(restaurantId) {
   const doc = await db.getDocument(DB_ID, COL.restaurants, restaurantId);
   return {
     ...doc,
+    coordinates: extractCoordinates(doc) || doc.coordinates,
     cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
     ambience: Array.isArray(doc.ambience) ? doc.ambience : [],
   };
@@ -217,7 +266,8 @@ export default function RestaurantDetailScreen() {
 
   // ---- Map/navigation states ----
   const windowHeight = Dimensions.get('window').height;
-  const collapsedSnap = windowHeight * 0.58;
+  const collapsedSnap = windowHeight * 0.58; // mid state showing partial details
+  const minimizedSnap = Math.min(windowHeight - (insets.bottom + 140), windowHeight * 0.88); // bottom state showing compact bar
   const expandedSnap = Math.max(insets.top + 60, windowHeight * 0.18);
 
   const sheetTranslateY = useRef(new Animated.Value(collapsedSnap)).current;
@@ -243,6 +293,13 @@ export default function RestaurantDetailScreen() {
   const [previewPolyline, setPreviewPolyline] = useState([]);
   const [previewSummary, setPreviewSummary] = useState(null);
   const [mapDimensions, setMapDimensions] = useState(null);
+  const [isSheetCollapsed, setIsSheetCollapsed] = useState(false);
+  const minNavZoomRef = useRef(NAVIGATION_ZOOM);
+  const pendingNavSnapRef = useRef(false);
+  const [offRouteTarget, setOffRouteTarget] = useState(null);
+  const offRouteClearTimeout = useRef(null);
+  const initialPrestartFitDoneRef = useRef(false);
+  const lastPreviewOriginRef = useRef(null);
 
   const routeStepsRef = useRef(routeSteps);
   const currentStepIndexRef = useRef(currentStepIndex);
@@ -274,13 +331,17 @@ export default function RestaurantDetailScreen() {
       if (!restaurantId) return;
       setLoading(true); setError(null);
       try {
-        const [rDoc, iDocs, revDocs] = await Promise.all([
-          passedRestaurant ? Promise.resolve(passedRestaurant) : fetchRestaurant(restaurantId),
+        const [fetchedRestaurant, iDocs, revDocs] = await Promise.all([
+          fetchRestaurant(restaurantId),
           fetchItemsForRestaurant(restaurantId),
           fetchReviewsForRestaurant(restaurantId),
         ]);
 
         if (cancelled) return;
+
+        const rDoc = fetchedRestaurant && passedRestaurant
+          ? { ...fetchedRestaurant, ...passedRestaurant }
+          : fetchedRestaurant || passedRestaurant;
 
         const rid = rDoc.id || rDoc.$id || restaurantId;
         const normRestaurant = {
@@ -360,10 +421,14 @@ export default function RestaurantDetailScreen() {
     (coordinate, rawHeading, duration = 600) => {
       if (!mapRef.current || !coordinate) return;
       const heading = resolveHeading(rawHeading);
-      const center = computeNavigationCenter(coordinate, heading);
+      const center = computeNavigationCenter(
+        { latitude: coordinate.latitude, longitude: coordinate.longitude },
+        heading,
+      );
+      const zoom = NAVIGATION_ZOOM;
 
       mapRef.current.animateCamera(
-        { center, zoom: NAVIGATION_ZOOM, pitch: NAVIGATION_PITCH, heading },
+        { center, zoom, pitch: NAVIGATION_PITCH, heading },
         { duration },
       );
     },
@@ -381,25 +446,30 @@ export default function RestaurantDetailScreen() {
   const recenterToRestaurant = useCallback(() => {
     if (!mapRef.current) return;
 
-    if (navigationActiveRef.current) {
+    const applyRecenter = async () => {
+      const currentCamera = mapRef.current.getCamera ? await mapRef.current.getCamera() : null;
+      const zoom = currentCamera?.zoom ?? 17.5;
+      const pitch = currentCamera?.pitch ?? 45;
+      const heading = resolveHeading(userLocation?.coords?.heading);
+
       const center = {
         latitude: baseCoordinate.latitude ?? MALAYSIA_CENTER.latitude,
         longitude: baseCoordinate.longitude ?? MALAYSIA_CENTER.longitude,
       };
+
       mapRef.current.animateCamera(
         {
           center,
-          zoom: NAVIGATION_ZOOM,
-          pitch: NAVIGATION_PITCH,
-          heading: resolveHeading(userLocation?.coords?.heading),
+          zoom: navigationActiveRef.current ? NAVIGATION_ZOOM : zoom,
+          pitch: navigationActiveRef.current ? NAVIGATION_PITCH : pitch,
+          heading,
         },
         { duration: 450 },
       );
-      return;
-    }
+    };
 
-    mapRef.current.animateToRegion(mapRegion, 450);
-  }, [baseCoordinate.latitude, baseCoordinate.longitude, mapRegion, resolveHeading, userLocation]);
+    applyRecenter();
+  }, [baseCoordinate.latitude, baseCoordinate.longitude, resolveHeading, userLocation]);
 
   const clearPreviewRoute = useCallback(() => {
     previewFetchedRef.current = false;
@@ -413,28 +483,88 @@ export default function RestaurantDetailScreen() {
       recenterToRestaurant();
       return;
     }
-    keepFollowingRef.current = true;
-    setKeepFollowing(true);
-    setShowRecenter(false);
-
-    const center = { latitude: userCoords.latitude, longitude: userCoords.longitude };
-    const heading = resolveHeading(userLocation?.coords?.heading);
-
     if (navigationActiveRef.current) {
+      // Navigation active: keep close on user
+      keepFollowingRef.current = true;
+      setKeepFollowing(true);
+      setShowRecenter(false);
+
+      const center = { latitude: userCoords.latitude, longitude: userCoords.longitude };
+      const heading = resolveHeading(userLocation?.coords?.heading);
+
+      minNavZoomRef.current = NAVIGATION_ZOOM;
       requestAnimationFrame(() => {
-        animateNavigationCamera(center, heading, 600);
+        mapRef.current?.animateCamera(
+          { center, zoom: NAVIGATION_ZOOM, pitch: NAVIGATION_PITCH, heading },
+          { duration: 300 },
+        );
       });
       return;
     }
 
-    mapRef.current.animateToRegion({ ...center, latitudeDelta: 0.004, longitudeDelta: 0.004 }, 350);
-    requestAnimationFrame(() => {
-      mapRef.current?.animateCamera(
-        { center, zoom: 17.5, pitch: 45, heading },
-        { duration: 600 },
+    // Pre-start: fit both user and restaurant (always zoom out to show both)
+    keepFollowingRef.current = false;
+    setKeepFollowing(false);
+    setShowRecenter(false);
+
+    const dest = {
+      latitude: baseCoordinate.latitude ?? MALAYSIA_CENTER.latitude,
+      longitude: baseCoordinate.longitude ?? MALAYSIA_CENTER.longitude,
+    };
+    if (Number.isFinite(dest.latitude) && Number.isFinite(dest.longitude)) {
+      const region = computeRegionForPoints(
+        { latitude: userCoords.latitude, longitude: userCoords.longitude },
+        dest,
       );
-    });
-  }, [animateNavigationCamera, recenterToRestaurant, resolveHeading, userCoords, userLocation]);
+      mapRef.current.animateToRegion(region, 450);
+    }
+  }, [baseCoordinate, recenterToRestaurant, resolveHeading, userCoords, userLocation]);
+
+  const handleStartPress = useCallback(() => {
+    if (navigationActive) {
+      stopNavigation();
+      return;
+    }
+    clearPreviewRoute();
+    initialRouteFetchedRef.current = false;
+    lastRouteFetchRef.current = 0;
+    keepFollowingRef.current = true;
+    setKeepFollowing(true);
+    setShowRecenter(false);
+    navigationActiveRef.current = true;
+    setNavigationActive(true);
+    minNavZoomRef.current = NAVIGATION_ZOOM;
+    pendingNavSnapRef.current = true;
+
+    // On start, snap camera tight to user like Google Maps
+    if (mapRef.current) {
+      const center = userCoords
+        ? { latitude: userCoords.latitude, longitude: userCoords.longitude }
+        : null;
+      const heading = resolveHeading(userLocation?.coords?.heading);
+      if (center) {
+        minNavZoomRef.current = NAVIGATION_ZOOM;
+        mapRef.current.animateCamera(
+          { center, zoom: NAVIGATION_ZOOM, pitch: NAVIGATION_PITCH, heading },
+          { duration: 450 },
+        );
+        pendingNavSnapRef.current = false;
+      }
+    }
+
+    focusOnUserForNavigation();
+
+    if (!userCoords) {
+      Alert.alert('Navigation Started', 'Getting your location for turn-by-turn directions...');
+    }
+  }, [
+    GOOGLE_MAPS_API_KEY,
+    clearPreviewRoute,
+    focusOnUserForNavigation,
+    navigationActive,
+    stopNavigation,
+    userCoords,
+  ]);
 
   const focusOnUserForNavigation = useCallback(() => {
     if (!mapRef.current) return;
@@ -528,12 +658,17 @@ export default function RestaurantDetailScreen() {
     (coords) => {
       if (!coords || !routePolyline.length) return Number.POSITIVE_INFINITY;
       let minDistance = Number.POSITIVE_INFINITY;
+      let nearestIndex = -1;
       for (let i = 0; i < routePolyline.length; i += 1) {
         const point = routePolyline[i];
         const dist = haversineDistance(coords, point);
-        if (dist < minDistance) minDistance = dist;
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestIndex = i;
+        }
       }
-      return minDistance;
+      const nearestPoint = nearestIndex >= 0 ? routePolyline[nearestIndex] : null;
+      return { minDistance, nearestPoint, nearestIndex };
     },
     [routePolyline],
   );
@@ -589,6 +724,7 @@ export default function RestaurantDetailScreen() {
       setPreviewPolyline(routeCoords);
       setPreviewSummary(summary);
       previewFetchedRef.current = true;
+      lastPreviewOriginRef.current = { ...userCoords };
 
       if (routeCoords.length && mapRef.current && !navigationActiveRef.current && !previewFittedRef.current) {
         mapRef.current.fitToCoordinates(routeCoords, {
@@ -614,6 +750,37 @@ export default function RestaurantDetailScreen() {
     fetchPreviewRoute();
   }, [navigationActive, userCoords, fetchPreviewRoute]);
 
+  // Refresh preview route when user moves significantly (pre-start only)
+  useEffect(() => {
+    if (navigationActive) return;
+    if (!userCoords) return;
+    const last = lastPreviewOriginRef.current;
+    const moved =
+      last && haversineDistance(userCoords, last) ? haversineDistance(userCoords, last) : Infinity;
+    if (moved < 25) return; // ignore tiny jitters
+    previewFetchedRef.current = false;
+    previewFittedRef.current = false;
+    fetchPreviewRoute();
+  }, [navigationActive, userCoords, fetchPreviewRoute]);
+
+  useEffect(() => {
+    if (navigationActive) return;
+    if (initialPrestartFitDoneRef.current) return;
+    if (!mapRef.current) return;
+    if (!userCoords) return;
+    const dest = {
+      latitude: baseCoordinate.latitude ?? MALAYSIA_CENTER.latitude,
+      longitude: baseCoordinate.longitude ?? MALAYSIA_CENTER.longitude,
+    };
+    if (!Number.isFinite(dest.latitude) || !Number.isFinite(dest.longitude)) return;
+    initialPrestartFitDoneRef.current = true;
+    const region = computeRegionForPoints(
+      { latitude: userCoords.latitude, longitude: userCoords.longitude },
+      dest,
+    );
+    mapRef.current.animateToRegion(region, 450);
+  }, [baseCoordinate.latitude, baseCoordinate.longitude, navigationActive, userCoords]);
+
   useEffect(() => {
     if (!navigationActive) { initialRouteFetchedRef.current = false; return; }
     if (!userCoords) return;
@@ -622,6 +789,17 @@ export default function RestaurantDetailScreen() {
       fetchDirections();
     }
   }, [navigationActive, userCoords, fetchDirections]);
+
+  // Force camera snap-in when navigation is active and we have user coords
+  useEffect(() => {
+    if (!navigationActive) return;
+    if (!userCoords) return;
+    const heading = resolveHeading(userLocation?.coords?.heading);
+    mapRef.current?.animateCamera(
+      { center: userCoords, zoom: NAVIGATION_ZOOM, pitch: NAVIGATION_PITCH, heading },
+      { duration: 300 },
+    );
+  }, [navigationActive, userCoords, userLocation, resolveHeading]);
 
   useEffect(() => {
     if (!navigationActive) return;
@@ -648,6 +826,11 @@ export default function RestaurantDetailScreen() {
     setNextStep(null);
     setNavSummary(null);
     setNavigationActive(false);
+    setOffRouteTarget(null);
+    if (offRouteClearTimeout.current) {
+      clearTimeout(offRouteClearTimeout.current);
+      offRouteClearTimeout.current = null;
+    }
     initialRouteFetchedRef.current = false;
     lastRouteFetchRef.current = 0;
     clearPreviewRoute();
@@ -685,6 +868,11 @@ export default function RestaurantDetailScreen() {
             const heading = resolveHeading(location.coords.heading);
 
             if (navigationActiveRef.current && mapRef.current) {
+              if (pendingNavSnapRef.current) {
+                pendingNavSnapRef.current = false;
+                animateNavigationCamera(coords, heading, 350);
+                return;
+              }
               if (!keepFollowingRef.current) {
                 keepFollowingRef.current = true;
                 setKeepFollowing(true);
@@ -705,9 +893,12 @@ export default function RestaurantDetailScreen() {
               });
             }
 
-            const distanceFromRoute = getDistanceToRouteRef.current
+            const routeInfo = getDistanceToRouteRef.current
               ? getDistanceToRouteRef.current(coords)
-              : Number.POSITIVE_INFINITY;
+              : { minDistance: Number.POSITIVE_INFINITY, nearestPoint: null, nearestIndex: -1 };
+            const distanceFromRoute = routeInfo.minDistance;
+            const nearestPoint = routeInfo.nearestPoint;
+            const nearestIndex = routeInfo.nearestIndex;
 
             if (
               navigationActiveRef.current &&
@@ -715,6 +906,35 @@ export default function RestaurantDetailScreen() {
               Date.now() - lastRouteFetchRef.current > 10000
             ) {
               fetchDirectionsRef.current?.();
+            }
+
+            if (navigationActiveRef.current && nearestPoint && nearestIndex >= 0 && distanceFromRoute > 5) {
+              const userPoint = { latitude: coords.latitude, longitude: coords.longitude };
+              // Add a few more route points ahead to avoid mid-curve cutoff
+              const extra = [];
+              for (let j = nearestIndex + 1; j < Math.min(nearestIndex + 4, routePolylineRef.current.length); j += 1) {
+                extra.push(routePolylineRef.current[j]);
+              }
+              const guide = [
+                userPoint,
+                { latitude: nearestPoint.latitude, longitude: nearestPoint.longitude },
+                ...extra,
+              ];
+              if (offRouteClearTimeout.current) {
+                clearTimeout(offRouteClearTimeout.current);
+                offRouteClearTimeout.current = null;
+              }
+              setOffRouteTarget({ guide });
+            } else if (navigationActiveRef.current) {
+              // Delay clearing the guide to avoid flicker
+              if (!offRouteClearTimeout.current) {
+                offRouteClearTimeout.current = setTimeout(() => {
+                  setOffRouteTarget(null);
+                  offRouteClearTimeout.current = null;
+                }, 5000);
+              }
+            } else {
+              setOffRouteTarget(null);
             }
 
             if (!navigationActiveRef.current) return;
@@ -771,10 +991,11 @@ export default function RestaurantDetailScreen() {
     }
   }, [navigationActive, userCoords, routeSteps, currentStepIndex, stopNavigation]);
 
-  // Sheet position init
+  // Sheet position init (start halfway, full details visible)
   useEffect(() => {
     sheetTranslateY.setValue(collapsedSnap);
     dragStart.current = collapsedSnap;
+    setIsSheetCollapsed(false);
   }, [collapsedSnap, sheetTranslateY]);
 
   // Sheet drag
@@ -787,15 +1008,29 @@ export default function RestaurantDetailScreen() {
           sheetTranslateY.stopAnimation((value) => { dragStart.current = value; });
         },
         onPanResponderMove: (_, g) => {
-          const next = clamp(dragStart.current + g.dy, expandedSnap, collapsedSnap);
+          const next = clamp(dragStart.current + g.dy, expandedSnap, minimizedSnap);
           sheetTranslateY.setValue(next);
         },
         onPanResponderRelease: (_, g) => {
-          const projected = clamp(dragStart.current + g.dy, expandedSnap, collapsedSnap);
-          const midpoint = (expandedSnap + collapsedSnap) / 2;
-          const target = projected <= midpoint || g.vy < -0.2 ? expandedSnap : collapsedSnap;
+          const projected = clamp(dragStart.current + g.dy, expandedSnap, minimizedSnap);
+          const firstMid = (expandedSnap + collapsedSnap) / 2;
+          const secondMid = (collapsedSnap + minimizedSnap) / 2;
+
+          let target;
+          if (projected <= firstMid || g.vy < -0.25) {
+            target = expandedSnap;
+          } else if (projected >= secondMid && g.vy > 0.25) {
+            target = minimizedSnap;
+          } else if (projected >= (expandedSnap + minimizedSnap) / 2) {
+            target = minimizedSnap;
+          } else if (projected >= firstMid) {
+            target = collapsedSnap;
+          } else {
+            target = expandedSnap;
+          }
 
           dragStart.current = target;
+          setIsSheetCollapsed(target === minimizedSnap);
           Animated.spring(sheetTranslateY, {
             toValue: target,
             useNativeDriver: true,
@@ -804,7 +1039,7 @@ export default function RestaurantDetailScreen() {
           }).start();
         },
       }),
-    [collapsedSnap, expandedSnap, sheetTranslateY],
+    [collapsedSnap, expandedSnap, minimizedSnap, sheetTranslateY],
   );
 
   // Combine items: backend + your local user items
@@ -879,9 +1114,10 @@ export default function RestaurantDetailScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
+        provider={PROVIDER_GOOGLE}
         onLayout={handleMapLayout}
         initialRegion={mapRegion}
-        customMapStyle={navigationActive ? DARK_MAP_STYLE : undefined}
+        customMapStyle={undefined}
         onPanDrag={() => {
           keepFollowingRef.current = false;
           setKeepFollowing(false);
@@ -894,16 +1130,34 @@ export default function RestaurantDetailScreen() {
           description={restaurantLocation}
         />
         {userCoords ? (
-          <Marker
-            coordinate={userCoords}
-            anchor={{ x: 0.5, y: 0.5 }}
-            rotation={userLocation?.coords?.heading ?? 0}
-            flat
-          >
-            <View style={styles.userMarkerHalo}>
-              <View style={styles.userMarker}>
-                <Ionicons name="navigate" size={22} color={BRAND.blue} />
-              </View>
+          <Marker coordinate={userCoords} anchor={{ x: 0.5, y: 0.5 }} zIndex={999}>
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: 'rgba(255,140,0,0.2)',
+                }}
+              />
+              <View
+                style={{
+                  position: 'absolute',
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: BRAND.primary,
+                  borderWidth: 2,
+                  borderColor: '#fff',
+                }}
+              />
             </View>
           </Marker>
         ) : null}
@@ -912,7 +1166,7 @@ export default function RestaurantDetailScreen() {
           <MapPolyline
             coordinates={navigationActive ? routePolyline : previewPolyline}
             strokeWidth={5}
-            strokeColor={BRAND.blue}
+            strokeColor="#ff7f00" // force orange route line
           />
         )}
 
@@ -926,6 +1180,22 @@ export default function RestaurantDetailScreen() {
               />
             </View>
           </Marker>
+        ) : null}
+
+        {navigationActive && offRouteTarget?.guide ? (
+          <>
+            <MapPolyline
+              coordinates={offRouteTarget.guide}
+              strokeWidth={4}
+              strokeColor="#ff7f00"
+              lineDashPattern={[6, 6]}
+            />
+            <Marker coordinate={offRouteTarget.guide[offRouteTarget.guide.length - 1]} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={{ backgroundColor: BRAND.primary, padding: 6, borderRadius: 10 }}>
+                <Ionicons name="flag" size={14} color={BRAND.surface} />
+              </View>
+            </Marker>
+          </>
         ) : null}
       </MapView>
 
@@ -1074,79 +1344,17 @@ export default function RestaurantDetailScreen() {
           </View>
         ) : null}
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.sheetContent,
-            navigationActive && navSummary ? styles.sheetContentWithSummary : null,
-          ]}
-        >
-          <View style={styles.headerCard}>
-            <TouchableOpacity
-              style={styles.iconFab}
-              accessibilityRole="button"
-              accessibilityLabel={saved ? 'Unsave restaurant' : 'Save restaurant'}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={() => {
-                if (saved) {
-                  unsaveRestaurant(rid);
-                  setSaved(false);
-                } else {
-                  saveRestaurant(rid);
-                  setSaved(true);
-                }
-              }}
-            >
-              <Ionicons
-                name={saved ? 'bookmark' : 'bookmark-outline'}
-                size={20}
-                color={BRAND.surface}
-              />
-            </TouchableOpacity>
-
-            <Text style={styles.name}>{restaurantName}</Text>
-            <Text style={styles.meta}>{restaurantLocation}</Text>
-
-            <View style={styles.badgeRow}>
-              <Badge text={`${restaurant.rating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
-              {typeof restaurant.averagePriceValue === 'number' ? (
-                <Badge text={`RM${restaurant.averagePriceValue}`} />
-              ) : null}
-              {cuisinesLabel ? <Badge text={cuisinesLabel} color={BRAND.metaBg} /> : null}
-            </View>
-
-            <View style={styles.actionsRow}>
+        {isSheetCollapsed ? (
+          <View style={[styles.headerCard, { paddingBottom: 12, marginBottom: 12 }]}>
+            <Text style={styles.name} numberOfLines={1}>{restaurantName}</Text>
+            <Text style={styles.meta} numberOfLines={1}>{restaurantLocation}</Text>
+            <View style={[styles.actionsRow, { marginTop: 12 }]}>
               <TouchableOpacity
                 style={[
                   styles.actionBtn,
                   { backgroundColor: navigationActive ? BRAND.primary : BRAND.ink },
                 ]}
-                onPress={() => {
-                  if (navigationActive) {
-                    stopNavigation();
-                    return;
-                  }
-                  if (!GOOGLE_MAPS_API_KEY) {
-                    Alert.alert(
-                      'Navigation Error',
-                      'Google Maps API key is missing. Please configure it to use navigation features.',
-                    );
-                    return;
-                  }
-                  clearPreviewRoute();
-                  initialRouteFetchedRef.current = false;
-                  lastRouteFetchRef.current = 0;
-                  keepFollowingRef.current = true;
-                  setKeepFollowing(true);
-                  setShowRecenter(false);
-                  navigationActiveRef.current = true;
-                  setNavigationActive(true);
-                  focusOnUserForNavigation();
-
-                  if (!userCoords) {
-                    Alert.alert('Navigation Started', 'Getting your location for turn-by-turn directions...');
-                  }
-                }}
+                onPress={handleStartPress}
               >
                 <Text style={styles.actionText}>
                   {navigationActive ? 'Stop' : 'Start'}
@@ -1158,112 +1366,175 @@ export default function RestaurantDetailScreen() {
                   onReviewAdded={() => setUserReviews(getUserReviews(rid))}
                   onOpen={() => setShowReviewModal(true)}
                 />
-              <TouchableOpacity onPress={() => navigation.navigate('Review')}>
+            </View>
+          </View>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.sheetContent,
+              navigationActive && navSummary ? styles.sheetContentWithSummary : null,
+            ]}
+          >
+            <View style={styles.headerCard}>
+              <TouchableOpacity
+                style={styles.iconFab}
+                accessibilityRole="button"
+                accessibilityLabel={saved ? 'Unsave restaurant' : 'Save restaurant'}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={() => {
+                  if (saved) {
+                    unsaveRestaurant(rid);
+                    setSaved(false);
+                  } else {
+                    saveRestaurant(rid);
+                    setSaved(true);
+                  }
+                }}
+              >
+                <Ionicons
+                  name={saved ? 'bookmark' : 'bookmark-outline'}
+                  size={20}
+                  color={BRAND.surface}
+                />
               </TouchableOpacity>
+
+              <Text style={styles.name}>{restaurantName}</Text>
+              <Text style={styles.meta}>{restaurantLocation}</Text>
+
+              <View style={styles.badgeRow}>
+                <Badge text={`${restaurant.rating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
+                {typeof restaurant.averagePriceValue === 'number' ? (
+                  <Badge text={`RM${restaurant.averagePriceValue}`} />
+                ) : null}
+                {cuisinesLabel ? <Badge text={cuisinesLabel} color={BRAND.metaBg} /> : null}
+              </View>
+
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.actionBtn,
+                    { backgroundColor: navigationActive ? BRAND.primary : BRAND.ink },
+                  ]}
+                  onPress={handleStartPress}
+                >
+                  <Text style={styles.actionText}>
+                    {navigationActive ? 'Stop' : 'Start'}
+                  </Text>
+                </TouchableOpacity>
+
+                <ReviewButton
+                    restaurantId={rid}
+                    onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+                    onOpen={() => setShowReviewModal(true)}
+                  />
+                <TouchableOpacity onPress={() => navigation.navigate('Review')}>
+                </TouchableOpacity>
+              </View>
+
+              {!navigationActive && previewSummary ? (
+                <View style={styles.previewRouteSummary}>
+                  <Ionicons
+                    name="car-outline"
+                    size={16}
+                    color={BRAND.ink}
+                    style={styles.previewRouteIcon}
+                  />
+                  <Text style={styles.previewRouteText}>
+                    {previewSummary.distanceText
+                      ? previewSummary.distanceText
+                      : (typeof previewSummary.distanceValue === 'number'
+                          ? `${(previewSummary.distanceValue / 1000).toFixed(1)} km`
+                          : '--')}
+                    {previewSummary.durationText ? ` \u2022 ${previewSummary.durationText}` : ''}
+                  </Text>
+                </View>
+              ) : null}
+
+              {navigationActive && nextStep ? (
+                <View style={styles.nextStepCard}>
+                  <Text style={styles.nextStepTitle}>Next turn</Text>
+                  <Text style={styles.nextStepInstruction}>{nextStep.instruction}</Text>
+                  <View style={styles.nextStepMeta}>
+                    {nextStep.maneuver ? (
+                      <Badge text={formatManeuverLabel(nextStep.maneuver)} color={BRAND.metaBg} />
+                    ) : null}
+                    {nextStep.distance ? <Badge text={nextStep.distance} /> : null}
+                    {nextStep.duration ? <Badge text={nextStep.duration} color={BRAND.accentSoft} /> : null}
+                  </View>
+                </View>
+              ) : null}
             </View>
 
-            {!navigationActive && previewSummary ? (
-              <View style={styles.previewRouteSummary}>
-                <Ionicons
-                  name="car-outline"
-                  size={16}
-                  color={BRAND.ink}
-                  style={styles.previewRouteIcon}
-                />
-                <Text style={styles.previewRouteText}>
-                  {previewSummary.distanceText
-                    ? previewSummary.distanceText
-                    : (typeof previewSummary.distanceValue === 'number'
-                        ? `${(previewSummary.distanceValue / 1000).toFixed(1)} km`
-                        : '--')}
-                  {previewSummary.durationText ? ` \u2022 ${previewSummary.durationText}` : ''}
-                </Text>
-              </View>
+            {restaurant.theme ? (
+              <Section title="Theme">
+                <Text style={{ fontSize: 15, color: BRAND.ink, lineHeight: 22 }}>{restaurant.theme}</Text>
+              </Section>
             ) : null}
 
-            {navigationActive && nextStep ? (
-              <View style={styles.nextStepCard}>
-                <Text style={styles.nextStepTitle}>Next turn</Text>
-                <Text style={styles.nextStepInstruction}>{nextStep.instruction}</Text>
-                <View style={styles.nextStepMeta}>
-                  {nextStep.maneuver ? (
-                    <Badge text={formatManeuverLabel(nextStep.maneuver)} color={BRAND.metaBg} />
-                  ) : null}
-                  {nextStep.distance ? <Badge text={nextStep.distance} /> : null}
-                  {nextStep.duration ? <Badge text={nextStep.duration} color={BRAND.accentSoft} /> : null}
+            {(restaurant.ambience || []).length ? (
+              <Section title="Ambience">
+                <View style={styles.chipWrap}>
+                  {restaurant.ambience.map((ambienceLabel, idx) => (
+                    <Chip key={`amb-${idx}`} label={ambienceLabel} />
+                  ))}
                 </View>
-              </View>
+              </Section>
             ) : null}
-          </View>
 
-          {restaurant.theme ? (
-            <Section title="Theme">
-              <Text style={{ fontSize: 15, color: BRAND.ink, lineHeight: 22 }}>{restaurant.theme}</Text>
-            </Section>
-          ) : null}
-
-          {(restaurant.ambience || []).length ? (
-            <Section title="Ambience">
-              <View style={styles.chipWrap}>
-                {restaurant.ambience.map((ambienceLabel, idx) => (
-                  <Chip key={`amb-${idx}`} label={ambienceLabel} />
-                ))}
-              </View>
-            </Section>
-          ) : null}
-
-          <Section title="Popular Items">
-            <FlatList
-              data={combinedItems}
-              keyExtractor={(item) => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: 8 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.itemCard}
-                  onPress={() => navigation.navigate('PreferenceItemDetail', { itemId: item.id })}
-                >
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <View style={styles.badgeRow}>
-                    <Badge text={item.price ?? toRM(item.priceRM)} />
-                    <Badge text={toTitleCase(item.type)} color={BRAND.metaBg} />
-                    {item.rating ? <Badge text={`${item.rating} ${STAR}`} color={BRAND.accentSoft} /> : null}
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          </Section>
-
-          {allReviews && allReviews.length ? (
-            <Section title="Reviews">
-              {allReviews.map((review, idx) => (
-                <View key={`rev-${idx}`} style={styles.reviewCard}>
-                  <Text style={styles.reviewAuthor}>{review.user || 'User'}</Text>
-                  {review.rating != null ? (
-                    <Text style={styles.reviewMeta}>{review.rating} {STAR}</Text>
-                  ) : null}
-                  {review.comment ? (
-                    <Text style={styles.reviewBody}>{review.comment}</Text>
-                  ) : null}
-                  {review.taste || review.location || review.coziness ? (
+            <Section title="Popular Items">
+              <FlatList
+                data={combinedItems}
+                keyExtractor={(item) => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingRight: 8 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.itemCard}
+                    onPress={() => navigation.navigate('PreferenceItemDetail', { itemId: item.id })}
+                  >
+                    <Text style={styles.itemName}>{item.name}</Text>
                     <View style={styles.badgeRow}>
-                      {typeof review.taste === 'number' && (
-                        <Badge text={`Taste ${review.taste} ${STAR}`} color={BRAND.accentSoft} />
-                      )}
-                      {typeof review.location === 'number' && (
-                        <Badge text={`Location ${review.location} ${STAR}`} color={BRAND.accentSoft} />
-                      )}
-                      {typeof review.coziness === 'number' && (
-                        <Badge text={`Coziness ${review.coziness} ${STAR}`} color={BRAND.accentSoft} />
-                      )}
+                      <Badge text={item.price ?? toRM(item.priceRM)} />
+                      <Badge text={toTitleCase(item.type)} color={BRAND.metaBg} />
+                      {item.rating ? <Badge text={`${item.rating} ${STAR}`} color={BRAND.accentSoft} /> : null}
                     </View>
-                  ) : null}
-                </View>
-              ))}
+                  </TouchableOpacity>
+                )}
+              />
             </Section>
-          ) : null}
-        </ScrollView>
+
+            {allReviews && allReviews.length ? (
+              <Section title="Reviews">
+                {allReviews.map((review, idx) => (
+                  <View key={`rev-${idx}`} style={styles.reviewCard}>
+                    <Text style={styles.reviewAuthor}>{review.user || 'User'}</Text>
+                    {review.rating != null ? (
+                      <Text style={styles.reviewMeta}>{review.rating} {STAR}</Text>
+                    ) : null}
+                    {review.comment ? (
+                      <Text style={styles.reviewBody}>{review.comment}</Text>
+                    ) : null}
+                    {review.taste || review.location || review.coziness ? (
+                      <View style={styles.badgeRow}>
+                        {typeof review.taste === 'number' && (
+                          <Badge text={`Taste ${review.taste} ${STAR}`} color={BRAND.accentSoft} />
+                        )}
+                        {typeof review.location === 'number' && (
+                          <Badge text={`Location ${review.location} ${STAR}`} color={BRAND.accentSoft} />
+                        )}
+                        {typeof review.coziness === 'number' && (
+                          <Badge text={`Coziness ${review.coziness} ${STAR}`} color={BRAND.accentSoft} />
+                        )}
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </Section>
+            ) : null}
+          </ScrollView>
+        )}
       </Animated.View>
       {/** Review modal moved to root so it overlays everything */}
       <ReviewModal
