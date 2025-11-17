@@ -24,6 +24,7 @@ import {
   usePreferenceSelections,
 } from '../state/preferenceSelectionsStore';
 import { getLikedItemIds, getSavedRestaurantIds } from '../state/libraryStore';
+import { onFoodlistsChange } from '../state/foodlistsStore';
 
 const EMPTY_SET = new Set();
 
@@ -41,6 +42,7 @@ export default function ExploreHomeScreen({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [bayesScores, setBayesScores] = useState(new Map());
+  const [foodlistVersion, setFoodlistVersion] = useState(0);
 
   // store click *events* instead of raw counts: Map<restaurantId, number[] of timestamps>
   const [clickEvents, setClickEvents] = useState(new Map());
@@ -67,6 +69,13 @@ export default function ExploreHomeScreen({
   useEffect(() => {
     reportScrollDirection('down');
   }, [reportScrollDirection]);
+
+  useEffect(() => {
+    const unsubscribe = onFoodlistsChange(() => {
+      setFoodlistVersion((prev) => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   const handleScroll = useCallback(
     (event) => {
@@ -472,7 +481,7 @@ export default function ExploreHomeScreen({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [likedItemsSerialized, savedRestaurantsSerialized, foodlistVersion]);
 
   const storeSelections = usePreferenceSelections();
 

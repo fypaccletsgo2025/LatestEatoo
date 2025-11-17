@@ -1,6 +1,29 @@
 // appwrite.js
 import { Client, Account, Databases } from 'appwrite';
 
+// The web Appwrite SDK expects window.localStorage. React Native doesn't
+// provide it, so polyfill the minimal surface area it needs.
+if (typeof globalThis.localStorage === 'undefined') {
+  const memoryStore = {};
+  globalThis.localStorage = {
+    getItem(key) {
+      if (Object.prototype.hasOwnProperty.call(memoryStore, key)) {
+        return memoryStore[key];
+      }
+      return null;
+    },
+    setItem(key, value) {
+      memoryStore[key] = String(value);
+    },
+    removeItem(key) {
+      delete memoryStore[key];
+    },
+    clear() {
+      Object.keys(memoryStore).forEach((key) => delete memoryStore[key]);
+    },
+  };
+}
+
 /** @typedef {{ name: string, location?: string, cuisines?: string[], ambience?: string[], rating?: number }} RestaurantDoc */
 
 export const client = new Client()

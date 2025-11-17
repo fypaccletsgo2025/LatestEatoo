@@ -12,8 +12,51 @@ function ensureArray(v) {
   return Array.isArray(v) ? v : [v];
 }
 
-function uniq(arr) {
-  return Array.from(new Set(arr));
+function normalizeId(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  return str.length ? str : null;
+}
+
+function addRestaurantId(target, value) {
+  const normalized = normalizeId(value);
+  if (normalized) {
+    target.add(normalized);
+  }
+}
+
+function resolveRestaurantIdFromItemId(itemId, itemsById) {
+  const normalizedId = normalizeId(itemId);
+  if (!normalizedId || !itemsById) return null;
+  const item = itemsById.get(normalizedId);
+  if (!item) return null;
+  const restaurantId =
+    item.restaurantId ??
+    item.restaurant_id ??
+    item.restaurant?.$id ??
+    item.restaurant?.id ??
+    null;
+  return normalizeId(restaurantId);
+}
+
+function resolveRestaurantIdFromItem(item, itemsById) {
+  if (!item) return null;
+  if (typeof item === 'string' || typeof item === 'number') {
+    return resolveRestaurantIdFromItemId(item, itemsById);
+  }
+  if (typeof item === 'object') {
+    const direct =
+      item.restaurantId ??
+      item.restaurant_id ??
+      item.restaurant?.$id ??
+      item.restaurant?.id ??
+      null;
+    const normalized = normalizeId(direct);
+    if (normalized) return normalized;
+    const fallbackId = item.$id ?? item.id ?? null;
+    return resolveRestaurantIdFromItemId(fallbackId, itemsById);
+  }
+  return null;
 }
 
 // ---------- pagination helpers ----------
@@ -119,18 +162,50 @@ async function loadRestaurantsWithMenusAndItems() {
   return { restaurants: richRestaurants, items, itemsById };
 }
 
-async function loadUserPositiveRestaurantIdsFromFoodlists(userId, itemsById) {
-  // Pull user’s foodlists and map itemIds -> restaurantId
-  const lists = await listAllDocuments(COL.foodlists, [Query.equal('ownerId', userId)]);
-  const itemIds = uniq(
-    lists.flatMap((fl) => ensureArray(fl.itemIds)).filter(Boolean)
-  );
+async function loadUserPositiveRestaurantIds(userId, itemsById) {
+  if (!userId) return new Set();
+
+  const [lists, likes, saves] = await Promise.all([
+    listAllDocuments(COL.foodlists, [Query.equal('ownerId', userId)]),
+    listAllDocuments(COL.likes, [Query.equal('user_id', userId)]),
+    listAllDocuments(COL.saves, [Query.equal('user_id', userId)]),
+  ]);
 
   const positiveRestaurantIds = new Set();
-  itemIds.forEach((iid) => {
-    const it = itemsById.get(iid);
-    const rid = it?.restaurantId;
+
+  lists.forEach((fl) => {
+    ensureArray(fl.itemIds).forEach((itemId) => {
+      const rid = resolveRestaurantIdFromItemId(itemId, itemsById);
+      if (rid) positiveRestaurantIds.add(rid);
+    });
+
+    ensureArray(fl.items).forEach((item) => {
+      const rid = resolveRestaurantIdFromItem(item, itemsById);
+      if (rid) positiveRestaurantIds.add(rid);
+    });
+  });
+
+  likes.forEach((doc) => {
+    const itemId =
+      doc?.item_id ??
+      doc?.itemId ??
+      doc?.targetId ??
+      doc?.item?.$id ??
+      doc?.item?.id ??
+      null;
+    const rid = resolveRestaurantIdFromItemId(itemId, itemsById);
     if (rid) positiveRestaurantIds.add(rid);
+  });
+
+  saves.forEach((doc) => {
+    const rid =
+      doc?.restaurant_id ??
+      doc?.restaurantId ??
+      doc?.targetId ??
+      doc?.restaurant?.$id ??
+      doc?.restaurant?.id ??
+      null;
+    addRestaurantId(positiveRestaurantIds, rid);
   });
 
   return positiveRestaurantIds;
@@ -299,7 +374,7 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
   const userId = me.$id;
 
   const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
-  const positiveIds = await loadUserPositiveRestaurantIdsFromFoodlists(userId, itemsById);
+  const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
 
   const model = buildModel({ restaurants, positiveIds });
 
@@ -322,6 +397,6 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
  */
 export async function createNaiveBayesModelForUserId(userId) {
   const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
-  const positiveIds = await loadUserPositiveRestaurantIdsFromFoodlists(userId, itemsById);
+  const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
   return buildModel({ restaurants, positiveIds });
 }
