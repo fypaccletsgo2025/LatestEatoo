@@ -914,7 +914,6 @@ export default function ExploreHomeScreen({
         {/* Restaurants */}
         <SectionTitle
           title="Recommended Restaurants"
-          right={sortBy === 'relevance' && bayesScores.size ? 'Personalized' : undefined}
         />
         <FlatList
           data={(() => {
@@ -950,7 +949,7 @@ export default function ExploreHomeScreen({
                 {bayesScores.has(r.id) ? (
                   <View style={{ marginTop: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                      <Badge text={`${pct(bayesScores.get(r.id))}% match`} color="#E6FFED" />
+                      <Badge text={`${pct(bayesScores.get(r.id))}% match to your taste`} color="#E6FFED" />
                     </View>
                     <View style={{ height: 6, backgroundColor: '#FFE8D2', borderRadius: 6, overflow: 'hidden' }}>
                       <View
@@ -1010,7 +1009,7 @@ export default function ExploreHomeScreen({
                 {bayesScores.has(item.restaurantId) ? (
                   <View style={{ marginTop: 6 }}>
                     <Badge
-                      text={`${pct(bayesScores.get(item.restaurantId))}% match`}
+                      text={`${pct(bayesScores.get(item.restaurantId))}% match to your taste`}
                       color="#E6FFED"
                     />
                   </View>

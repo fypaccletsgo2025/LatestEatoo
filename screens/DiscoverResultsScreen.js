@@ -113,10 +113,11 @@ export default function DiscoverResultsScreen({ route, navigation }) {
   const phraseMap = {
     spicy: "For when you're feeling bold",
     sweet: 'Sweetness that hits the heart',
-    aromatic: 'Fragrances that entice the soul',
+    salty: 'Perfectly seasoned and savory',
     hearty: 'For big appetites and warm hearts',
     refreshing: 'Fresh flavors to invigorate your day',
     creamy: 'Indulgence in every smooth bite',
+    aromatic: 'A feast for the senses',
   };
   const normalizedTag = tag ? String(tag).trim().toLowerCase() : null;
   const heroMeta = phraseMap[normalizedTag] || 'Explore delicious options';

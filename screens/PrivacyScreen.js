@@ -1,12 +1,13 @@
 // screens/PrivacyScreen.js
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
+  Modal,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -24,24 +25,31 @@ const BRAND = {
 
 export default function PrivacyScreen() {
   const navigation = useNavigation();
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalContent, setModalContent] = useState({ title: '', body: '' });
 
   const handlePolicy = () => {
-    Alert.alert('Privacy Policy', 'This would open your detailed Privacy Policy.');
+    setModalContent({
+      title: 'Privacy Policy',
+      body: "We may collect limited usage data (e.g., clicks, saves) to improve recommendations. We do not sell your personal information. See our full policy for details on what we store and how we protect it.",
+    });
+    setModalVisible(true);
   };
 
   const handleTerms = () => {
-    Alert.alert('Terms of Service', 'This would open your Terms of Service.');
+    setModalContent({
+      title: 'Terms of Service',
+      body: "Welcome to our food recommendation app. By using the app, you agree to the following:\n\n1) We recommend dishes and places based on signals like popularity, freshness, and your activity. Results are suggestions, not guarantees of availability, quality, or dietary suitability.\n\n2) Always check ingredients and allergens with the venue or source. We are not liable for adverse reactions.\n\n3) You retain rights to any content you create (e.g., lists, notes), but grant us a license to display it within the app features you use.\n\n4) No spam, scraping, or mischief. Don’t do anything that breaks the law or ruins dinner for everyone else.",
+    });
+    setModalVisible(true);
   };
 
   const handleDataSettings = () => {
-    Alert.alert('Data Settings', 'Manage your data and app permissions here.');
-  };
-
-  const handleDeleteAccount = () => {
-    Alert.alert('Delete Account', 'Are you sure you want to delete your account?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => console.log('Account deleted!') },
-    ]);
+    setModalContent({
+      title: 'Data & Permissions',
+      body: 'You can manage your app permissions in your device settings. This includes permissions for location (for navigation) and notifications (for invites and updates).\n\nTo export your data, please contact support. You can delete your account from the "Password & Security" screen.',
+    });
+    setModalVisible(true);
   };
 
   return (
@@ -73,22 +81,18 @@ export default function PrivacyScreen() {
           <ActionButton label="Manage Data & Permissions" onPress={handleDataSettings} />
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Account Control</Text>
-          <Text style={styles.sectionBody}>
-            Export your data or delete your account at any time. We keep your details secure.
-          </Text>
-          <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteAccount}>
-            <Text style={styles.dangerText}>Delete My Account</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
             We respect your privacy. Your data stays with us and is never shared without your consent.
           </Text>
         </View>
       </ScrollView>
+      <InfoModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        title={modalContent.title}
+        body={modalContent.body}
+      />
     </SafeAreaView>
   );
 }
@@ -98,6 +102,38 @@ function ActionButton({ label, onPress }) {
     <TouchableOpacity style={styles.actionButton} onPress={onPress}>
       <Text style={styles.actionText}>{label}</Text>
     </TouchableOpacity>
+  );
+}
+
+function InfoModal({ visible, onClose, title, body }) {
+  return (
+    <Modal
+      animationType="slide"
+      transparent
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ color: BRAND.primary, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={{ maxHeight: Platform.OS === 'ios' ? 400 : 350 }}
+            contentContainerStyle={{ paddingBottom: 8 }}
+            showsVerticalScrollIndicator
+          >
+            <Text style={styles.modalText}>
+              {body}
+            </Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -117,6 +153,7 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 18,
     backgroundColor: BRAND.bg,
+    flexGrow: 1,
   },
   card: {
     backgroundColor: BRAND.card,
@@ -161,5 +198,36 @@ const styles = StyleSheet.create({
     color: BRAND.inkMuted,
     fontSize: 13,
     lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 20,
+    borderWidth: 1,
+    borderColor: BRAND.line,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: BRAND.ink,
+  },
+  modalText: {
+    fontSize: 14,
+    color: BRAND.ink,
+    lineHeight: 22,
   },
 });

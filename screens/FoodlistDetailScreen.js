@@ -9,6 +9,8 @@ import {
   TextInput,
   Modal,
   StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -75,6 +77,75 @@ const normalizeFoodlistDoc = (raw) => {
     itemIds,
     members,
   };
+};
+
+// Invite: local-only (schema doesn’t have members)
+const InviteModal = ({
+  visible,
+  onClose,
+  currentList,
+  onInvite,
+}) => {
+  const [inviteQuery, setInviteQuery] = useState('');
+
+  const handleInvite = () => {
+    const v = inviteQuery.trim();
+    if (!v) return;
+    onInvite(v);
+    setInviteQuery('');
+  };
+
+  const handleClose = () => {
+    setInviteQuery('');
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <View style={styles.modalOverlay}>
+          <View className="sheet" style={styles.bottomSheet}>
+            <Text style={styles.sheetTitle}>Invite collaborators</Text>
+            <Text style={{ color: BRAND.inkMuted, marginTop: 6 }}>
+              Your backend doesn’t have a <Text style={{ fontWeight: '700' }}>members</Text> field yet,
+              so invites are local-only. Add a <Text style={{ fontWeight: '700' }}>members (array)</Text> string attribute in the <Text style={{ fontWeight: '700' }}>foodlists</Text> collection to persist.
+            </Text>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color={BRAND.inkMuted} />
+              <TextInput
+                placeholder="Type a name and press Invite"
+                placeholderTextColor={BRAND.inkMuted}
+                style={styles.searchInput}
+                value={inviteQuery}
+                onChangeText={setInviteQuery}
+                autoFocus
+              />
+              {!!inviteQuery && (
+                <TouchableOpacity onPress={() => setInviteQuery('')}>
+                  <Ionicons name="close-circle" size={18} color={BRAND.inkMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity onPress={handleInvite} style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}>
+              <Ionicons name="send" size={18} color="#fff" />
+              <Text style={[styles.primaryBtnText, { marginLeft: 8 }]}>Invite</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleClose} style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}>
+              <Text style={styles.primaryBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
 };
 
 export default function FoodlistDetailScreen({ route, navigation }) {
@@ -146,7 +217,6 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   const [selectedToRemove, setSelectedToRemove] = useState([]);
 
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteQuery, setInviteQuery] = useState('');
   const [contributorsOpen, setContributorsOpen] = useState(false);
 
   const [toastMessage, setToastMessage] = useState('');
@@ -535,66 +605,6 @@ export default function FoodlistDetailScreen({ route, navigation }) {
     );
   };
 
-  // Invite: local-only (schema doesn’t have members)
-  const InviteModal = () => (
-    <Modal
-      visible={inviteOpen}
-      transparent
-      animationType="slide"
-      onRequestClose={() => setInviteOpen(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View className="sheet" style={styles.bottomSheet}>
-          <Text style={styles.sheetTitle}>Invite collaborators</Text>
-          <Text style={{ color: BRAND.inkMuted, marginTop: 6 }}>
-            Your backend doesn’t have a <Text style={{ fontWeight: '700' }}>members</Text> field yet,
-            so invites are local-only. Add a <Text style={{ fontWeight: '700' }}>members (array)</Text> string attribute in the <Text style={{ fontWeight: '700' }}>foodlists</Text> collection to persist.
-          </Text>
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={16} color={BRAND.inkMuted} />
-            <TextInput
-              placeholder="Type a name and press Invite"
-              placeholderTextColor={BRAND.inkMuted}
-              style={styles.searchInput}
-              value={inviteQuery}
-              onChangeText={setInviteQuery}
-              autoFocus
-            />
-            {!!inviteQuery && (
-              <TouchableOpacity onPress={() => setInviteQuery('')}>
-                <Ionicons name="close-circle" size={18} color={BRAND.inkMuted} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              const v = inviteQuery.trim();
-              if (!v) return;
-              const updated = { ...currentList, members: [...(currentList.members || []), v] };
-              setCurrentList(updated);
-              // Not persisted: reflect in local caches so other screens stay in sync
-              syncLocalFoodlists(updated);
-              setInviteQuery('');
-              showToast('Invitation added (local)');
-            }}
-            style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}
-          >
-            <Ionicons name="send" size={18} color="#fff" />
-            <Text style={[styles.primaryBtnText, { marginLeft: 8 }]}>Invite</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setInviteOpen(false)}
-            style={[styles.primaryBtn, { backgroundColor: BRAND.slate, marginTop: 12 }]}
-          >
-            <Text style={styles.primaryBtnText}>Done</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-
   const ContributorsModal = () => (
     <Modal
       visible={contributorsOpen}
@@ -654,6 +664,13 @@ export default function FoodlistDetailScreen({ route, navigation }) {
 
   const hasRemoveSelection = selectedToRemove.length > 0;
   const hasAddSelection = selectedToAdd.length > 0;
+
+  const handleInvite = useCallback((name) => {
+    const updated = { ...currentList, members: [...(currentList.members || []), name] };
+    setCurrentList(updated);
+    syncLocalFoodlists(updated);
+    showToast('Invitation added (local)');
+  }, [currentList, syncLocalFoodlists]);
 
   const dataToRender = addingItems ? itemsAvailableToAdd : currentList.items;
   const isLoadingListOrAll = loadingDoc || (addingItems ? loadingAll : loadingList);
@@ -755,7 +772,12 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         )}
       </View>
 
-      <InviteModal />
+      <InviteModal
+        visible={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        currentList={currentList}
+        onInvite={handleInvite}
+      />
       <ContributorsModal />
       <Toast />
     </SafeAreaView>

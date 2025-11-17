@@ -1,5 +1,5 @@
 // screens/ExploreTabsScreen.js
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPQ, setShowPQ] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [tabBarHiddenByScroll, setTabBarHiddenByScroll] = useState(false);
   const preferenceSelections = usePreferenceSelections();
 
@@ -101,7 +102,22 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
     }
   }, [tab]);
 
-  const isTabBarVisible = !drawerOpen && !showPQ && !tabBarHiddenByScroll;
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+
+  const isTabBarVisible = !drawerOpen && !showPQ && !tabBarHiddenByScroll && !keyboardVisible;
 
   return (
     <SafeAreaView
@@ -280,7 +296,7 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
                   }}
                 />
                 <DrawerItem
-                  label="Sign out"
+                  label="Log out"
                   onPress={() => {
                     setDrawerOpen(false);
                     onLogout?.();

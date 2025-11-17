@@ -120,12 +120,6 @@ export default function PasswordSecurityScreen() {
           </View>
         )}
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Session Management</Text>
-          <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
-            <Text style={styles.dangerText}>Log Out</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
