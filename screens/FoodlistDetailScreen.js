@@ -333,74 +333,61 @@ const InviteModal = ({
                 ) : null}
 
                 <View style={{ marginTop: 12 }}>
-                  {searching ? (
-                    <View style={styles.searchingBox}>
-                      <ActivityIndicator size="small" color={BRAND.primary} />
-                    </View>
-                  ) : searchReady ? (
-                    results.length ? (
-                      <FlatList
-                        data={results}
-                        keyExtractor={(item) => item.id}
-                        style={{ maxHeight: 220 }}
-                        keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator={false}
-                        renderItem={({ item }) => {
-                          const busy = busyIds.includes(item.id);
-                          return (
-                            <View style={styles.listRow}>
-                              <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>
-                                  {getInitials(
-                                    item.displayName || item.username
-                                  )}
-                                </Text>
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.rowText}>
-                                  {item.displayName || item.username}
-                                </Text>
-                                {!!item.username && (
-                                  <Text style={styles.usernameText}>
-                                    @{item.username}
-                                  </Text>
-                                )}
-                              </View>
-                              <TouchableOpacity
-                                style={[
-                                  styles.inviteBtn,
-                                  busy && styles.inviteBtnDisabled,
-                                ]}
-                                disabled={busy}
-                                onPress={() => handleInviteFromSearch(item)}
-                              >
-                                {busy ? (
-                                  <ActivityIndicator
-                                    size="small"
-                                    color="#fff"
-                                  />
-                                ) : (
-                                  <Text style={styles.inviteBtnText}>
-                                    Invite
-                                  </Text>
-                                )}
-                              </TouchableOpacity>
-                            </View>
-                          );
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.emptyHint}>
-                        {noMatchesMessage ||
-                          `No users named "${inviteQueryTrimmed}" were found.`}
-                      </Text>
-                    )
-                  ) : (
-                    <Text style={styles.helperText}>
-                      Type at least 2 characters to search the directory.
-                    </Text>
-                  )}
-                </View>
+  {searching ? (
+    <View style={styles.searchingBox}>
+      <ActivityIndicator size="small" color={BRAND.primary} />
+    </View>
+  ) : searchReady ? (
+    results.length ? (
+      <>
+        {results.map((item) => {
+          const busy = busyIds.includes(item.id);
+          return (
+            <View key={item.id} style={styles.listRow}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {getInitials(item.displayName || item.username)}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowText}>
+                  {item.displayName || item.username}
+                </Text>
+                {!!item.username && (
+                  <Text style={styles.usernameText}>@{item.username}</Text>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.inviteBtn,
+                  busy && styles.inviteBtnDisabled,
+                ]}
+                disabled={busy}
+                onPress={() => handleInviteFromSearch(item)}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.inviteBtnText}>Invite</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </>
+    ) : (
+      <Text style={styles.emptyHint}>
+        {noMatchesMessage ||
+          `No users named "${inviteQueryTrimmed}" were found.`}
+      </Text>
+    )
+  ) : (
+    <Text style={styles.helperText}>
+      Type at least 2 characters to search the directory.
+    </Text>
+  )}
+</View>
+
 
                 {!!collaboratorDisplayList.length && (
                   <View style={{ marginTop: 16 }}>
