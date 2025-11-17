@@ -7,6 +7,36 @@ const listeners = new Set();
 
 const cloneValue = (value) => (value && typeof value === 'object' ? { ...value } : value);
 
+const getCollaboratorId = (member) => {
+  if (!member) return null;
+  if (typeof member === 'string') {
+    return member.trim();
+  }
+  if (typeof member === 'number') {
+    return String(member);
+  }
+  if (typeof member === 'object') {
+    return (
+      member.$id ||
+      member.id ||
+      member.userId ||
+      member.ownerId ||
+      member.username ||
+      member.handle ||
+      member.slug ||
+      null
+    );
+  }
+  return null;
+};
+
+const normalizeCollaborators = (source) => {
+  if (!Array.isArray(source)) return [];
+  return source
+    .map((member) => getCollaboratorId(member))
+    .filter((value) => typeof value === 'string' && value.length > 0);
+};
+
 function normalizeFoodlist(raw) {
   if (!raw) return null;
   const id = raw.$id ?? raw.id ?? null;
@@ -18,9 +48,8 @@ function normalizeFoodlist(raw) {
     : items
         .map((item) => (item && typeof item === 'object' ? item.id ?? item.$id ?? null : null))
         .filter(Boolean);
-  const members = Array.isArray(raw.members)
-    ? raw.members.filter(Boolean).map((member) => cloneValue(member))
-    : [];
+  const collaboratorsSource = raw.collaborators ?? raw.members ?? [];
+  const collaborators = normalizeCollaborators(collaboratorsSource);
 
   return {
     ...raw,
@@ -30,7 +59,7 @@ function normalizeFoodlist(raw) {
     description: raw.description || '',
     items,
     itemIds,
-    members,
+    collaborators,
     ownerId: raw.ownerId ?? (raw.owner ? raw.owner.id || raw.owner.$id || null : null),
   };
 }
@@ -43,11 +72,7 @@ function cloneFoodlist(list) {
       ? list.items.map((item) => (item && typeof item === 'object' ? { ...item } : item))
       : [],
     itemIds: Array.isArray(list.itemIds) ? [...list.itemIds] : [],
-    members: Array.isArray(list.members)
-      ? list.members.map((member) =>
-          member && typeof member === 'object' ? { ...member } : member
-        )
-      : [],
+    collaborators: Array.isArray(list.collaborators) ? [...list.collaborators] : [],
   };
 }
 

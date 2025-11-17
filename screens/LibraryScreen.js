@@ -20,6 +20,7 @@ import {
   getSavedRestaurantIds,
   getLikedItemIds,
   onLibraryChange,
+  loadLibraryState,
 } from '../state/libraryStore';
 
 // Appwrite
@@ -46,9 +47,10 @@ export default function LibraryScreen({ onScrollDirectionChange }) {
   const [likedItems, setLikedItems] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
 
-  const refresh = React.useCallback(async ({ forceFoodlists = false } = {}) => {
+  const refresh = React.useCallback(async ({ forceFoodlists = false, forceLibrary = false } = {}) => {
     try {
       setLoading(true);
+      await loadLibraryState({ force: forceLibrary });
       const restIds = getSavedRestaurantIds();
       const itemIds = getLikedItemIds();
 
@@ -108,7 +110,7 @@ export default function LibraryScreen({ onScrollDirectionChange }) {
 
   React.useEffect(() => {
     if (!isFocused) return;
-    refresh({ forceFoodlists: true });
+    refresh({ forceFoodlists: true, forceLibrary: true });
   }, [isFocused, refresh]);
 
   const scrollOffsetRef = React.useRef(0);

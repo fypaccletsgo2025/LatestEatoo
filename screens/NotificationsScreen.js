@@ -60,16 +60,16 @@ export default function NotificationsScreen() {
 
     const current = getFoodlists();
     const already = current.some((l) => l.name === list.name);
-    const baseMembers = Array.isArray(list.members) ? list.members : [];
-    const members =
+    const baseCollaborators = Array.isArray(list.collaborators) ? list.collaborators : [];
+    const collaborators =
       inviter &&
-      !baseMembers.some(
+      !baseCollaborators.some(
         (m) => String(m).toLowerCase() === String(inviter).toLowerCase()
       )
-        ? [...baseMembers, inviter]
-        : baseMembers;
+        ? [...baseCollaborators, inviter]
+        : baseCollaborators;
 
-    const newList = { ...list, id: String(Date.now()), members };
+    const newList = { ...list, id: String(Date.now()), collaborators };
     if (!already) updateFoodlists((prev) => [...prev, newList]);
     setNotifications((prev) => prev.filter((n) => n.id !== note.id));
   };

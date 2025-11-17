@@ -9,7 +9,19 @@ export const client = new Client()
 
 export const db = new Databases(client);
 export const DB_ID = '68caecff003c5d39d1fb';
-export const COL = { restaurants: 'restaurants', menus: 'menus', items: 'items', reviews: 'reviews', foodlists: 'foodlists', updates: 'updates' };
+export const COL = {
+  restaurants: 'restaurants',
+  menus: 'menus',
+  items: 'items',
+  reviews: 'reviews',
+  foodlists: 'foodlists',
+  updates: 'updates',
+  likes: 'likes',
+  saves: 'saves',
+  users: 'users',
+  userSubmissions: 'user_submissions',
+  restaurantRequests: 'restaurant_requests',
+};
 
 /** @returns {Promise<RestaurantDoc[]>} */
 export async function listRestaurants() {
