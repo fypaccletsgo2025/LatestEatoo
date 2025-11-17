@@ -2,15 +2,70 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput,
-  TouchableOpacity, Pressable, Modal, KeyboardAvoidingView, Platform
+  TouchableOpacity, Pressable, Modal, KeyboardAvoidingView, Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { getUpdates, addUpdate } from '../state/updatesStore';
+import { Query } from 'appwrite';
+import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
 import { availableRestaurants } from '../data/mockData';
 
 const THEME_COLOR = '#FF4D00';
 const BG_COLOR = '#FFF5ED';
+
+const normalizeRole = (value) => {
+  const norm = String(value || '').toLowerCase();
+  if (
+    norm.includes('owner') ||
+    norm.includes('business') ||
+    norm.includes('restaurant')
+  ) {
+    return 'owner';
+  }
+  return 'user';
+};
+
+const normalizeUpdateDoc = (doc) => {
+  if (!doc) return null;
+  const id = doc.$id || doc.id || `local-${Math.random().toString(36).slice(2)}`;
+  const author =
+    doc.authorName ||
+    doc.author ||
+    doc.displayName ||
+    doc.username ||
+    'Community member';
+  const text = String(doc.text ?? doc.body ?? doc.message ?? '').trim();
+  const dateISO =
+    doc.dateISO ||
+    doc.createdAt ||
+    doc.$createdAt ||
+    doc.updatedAt ||
+    doc.$updatedAt ||
+    new Date().toISOString();
+  const roleSource = doc.role || doc.authorRole || doc.roleType;
+  return {
+    id,
+    author,
+    role: normalizeRole(roleSource),
+    text,
+    dateISO,
+  };
+};
+
+const deriveRoleFromProfile = (profile) => {
+  if (!profile) return 'user';
+  const pool = [];
+  if (Array.isArray(profile.labels)) pool.push(...profile.labels);
+  if (Array.isArray(profile.roles)) pool.push(...profile.roles);
+  pool.push(profile?.prefs?.role, profile?.prefs?.accountType, profile?.prefs?.businessRole);
+  const match = pool
+    .map((value) => String(value || '').toLowerCase())
+    .find((value) =>
+      value && (value.includes('owner') || value.includes('business') || value.includes('restaurant'))
+    );
+  return match ? 'owner' : 'user';
+};
 
 function Header({ onAddPress }) {
   return (
@@ -73,11 +128,16 @@ function Post({ post }) {
 }
 
 export default function UpdatesScreen({ onScrollDirectionChange }) {
-  const [feed, setFeed] = React.useState(getUpdates());
+  const [feed, setFeed] = React.useState([]);
   const [modalVisible, setModalVisible] = React.useState(false);
+  const [loadingFeed, setLoadingFeed] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [fetchError, setFetchError] = React.useState('');
+  const [posting, setPosting] = React.useState(false);
+  const [postError, setPostError] = React.useState('');
 
   // Modal composer state
-  const [author, setAuthor] = React.useState('You');
+  const [author, setAuthor] = React.useState('');
   const [text, setText] = React.useState('');
   const [selection, setSelection] = React.useState({ start: 0, end: 0 });
   const [mentionQuery, setMentionQuery] = React.useState(null); // { start, query, hadAt }
@@ -124,6 +184,7 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
 
   const handleChangeText = (val) => {
     setText(val);
+    if (postError) setPostError('');
     updateMentionState(val, selection);
   };
 
@@ -147,16 +208,109 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
     setMentionQuery(null);
   };
 
-  const submit = () => {
+  const loadUpdates = React.useCallback(
+    async ({ silent = false } = {}) => {
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setLoadingFeed(true);
+      }
+      try {
+        await ensureSession();
+        const res = await db.listDocuments(DB_ID, COL.updates, [
+          Query.orderDesc('$createdAt'),
+          Query.limit(100),
+        ]);
+        const docs = Array.isArray(res?.documents) ? res.documents : [];
+        const normalized = docs.map(normalizeUpdateDoc).filter(Boolean);
+        setFeed(normalized);
+        setFetchError('');
+      } catch (error) {
+        console.warn('Failed to load updates', error?.message || error);
+        setFetchError(error?.message || 'Unable to load updates right now.');
+      } finally {
+        setLoadingFeed(false);
+        setRefreshing(false);
+      }
+    },
+    []
+  );
+
+  React.useEffect(() => {
+    loadUpdates();
+  }, [loadUpdates]);
+
+  const handleRefresh = React.useCallback(() => {
+    loadUpdates({ silent: true });
+  }, [loadUpdates]);
+
+  React.useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        await ensureSession();
+        const profile = await account.get();
+        if (!active) return;
+        const fallback = profile?.email || 'You';
+        const inferred = profile?.name?.trim() || fallback;
+        setAuthor((prev) => (prev && prev.trim() ? prev : inferred));
+      } catch {
+        if (!active) return;
+        setAuthor((prev) => (prev && prev.trim() ? prev : 'You'));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const submit = React.useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    addUpdate({ author: author || 'You', role: 'user', text: trimmed });
-    setFeed(getUpdates());
-    setText('');
-    setSelection({ start: 0, end: 0 });
-    setMentionQuery(null);
-    setModalVisible(false);
-  };
+    if (!trimmed) {
+      setPostError('Share something before posting.');
+      return;
+    }
+    setPosting(true);
+    setPostError('');
+    try {
+      await ensureSession();
+      const profile = await account.get();
+      if (!profile?.$id) {
+        throw new Error('Unable to identify your session. Please try again.');
+      }
+      const resolvedAuthor =
+        (author || '').trim() ||
+        profile?.name ||
+        profile?.email ||
+        'Community member';
+      const payload = {
+        text: trimmed,
+        authorName: resolvedAuthor,
+        authorRole: deriveRoleFromProfile(profile),
+        authorid: profile.$id,
+      };
+      const doc = await db.createDocument(DB_ID, COL.updates, 'unique()', payload);
+      const normalized = normalizeUpdateDoc(doc);
+      if (normalized) {
+        setFeed((prev) => [normalized, ...prev]);
+      }
+      setText('');
+      setSelection({ start: 0, end: 0 });
+      setMentionQuery(null);
+      setModalVisible(false);
+    } catch (error) {
+      setPostError(error?.message || 'Unable to share update right now.');
+    } finally {
+      setPosting(false);
+    }
+  }, [text, author]);
+
+  React.useEffect(() => {
+    if (!modalVisible) {
+      setPostError('');
+      setPosting(false);
+    }
+  }, [modalVisible]);
 
   const scrollOffsetRef = React.useRef(0);
   const lastDirectionRef = React.useRef('down');
@@ -207,9 +361,32 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
         ListHeaderComponent={
           <>
             <Header onAddPress={() => setModalVisible(true)} />
+            {fetchError ? (
+              <Text style={[styles.errorText, { marginHorizontal: 16, marginTop: 8 }]}>
+                {fetchError}
+              </Text>
+            ) : null}
             <View style={styles.feedDivider} />
           </>
         }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            {loadingFeed ? (
+              <>
+                <ActivityIndicator color={THEME_COLOR} />
+                <Text style={[styles.emptyText, { marginTop: 12 }]}>Loading updates...</Text>
+              </>
+            ) : (
+              <Text style={styles.emptyText}>
+                {fetchError
+                  ? 'Unable to load updates right now.'
+                  : 'No updates yet. Be the first to share one!'}
+              </Text>
+            )}
+          </View>
+        }
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       />
@@ -231,8 +408,15 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
                 <Text style={{ color: '#555', fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>New Post</Text>
-              <TouchableOpacity onPress={submit}>
-                <Text style={{ color: THEME_COLOR, fontWeight: '700' }}>Post</Text>
+              <TouchableOpacity onPress={submit} disabled={posting || !text.trim()}>
+                <Text
+                  style={{
+                    color: posting || !text.trim() ? '#A1A1AA' : THEME_COLOR,
+                    fontWeight: '700',
+                  }}
+                >
+                  {posting ? 'Posting...' : 'Post'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -279,6 +463,7 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
                 </View>
               )}
             </View>
+            {postError ? <Text style={styles.postError}>{postError}</Text> : null}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -330,6 +515,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFC299',
     marginVertical: 10,
     borderRadius: 2,
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  emptyText: {
+    color: '#6B7280',
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
   },
 
   /* Posts */
@@ -419,4 +619,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   ownerPill: { fontWeight: '700', fontSize: 12, color: THEME_COLOR },
+  postError: {
+    color: '#B91C1C',
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });

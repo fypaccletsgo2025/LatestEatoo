@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { getBusinessProfile, submitBusinessProfile } from '../state/businessStore';
+import { db, DB_ID, COL, ensureSession } from '../appwrite';
+import { Query, ID } from 'appwrite';
 import BackButton from '../components/BackButton';
 
 const BRAND = {
@@ -25,51 +26,156 @@ const BRAND = {
 };
 
 export default function BusinessProfileScreen() {
-  const [bp, setBp] = React.useState(getBusinessProfile());
-  const [showForm, setShowForm] = React.useState(false);
   const navigation = useNavigation();
+  const [bp, setBp] = React.useState(null);
+  const [showForm, setShowForm] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [fetchError, setFetchError] = React.useState('');
+  const [submittingForm, setSubmittingForm] = React.useState(false);
 
   // Form fields
   const [name, setName] = React.useState('');
-  const [regNo, setRegNo] = React.useState('');
+  const [registrationNo, setRegistrationNo] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [phone, setPhone] = React.useState('');
   const [address, setAddress] = React.useState('');
   const [city, setCity] = React.useState('');
   const [stateVal, setStateVal] = React.useState('');
   const [postcode, setPostcode] = React.useState('');
-  const [cuisine, setCuisine] = React.useState('');
+  const [cuisines, setCuisines] = React.useState('');
   const [website, setWebsite] = React.useState('');
+  const [theme, setTheme] = React.useState('');
+  const [ambience, setAmbience] = React.useState('');
   const [notes, setNotes] = React.useState('');
 
-  const submit = () => {
-    if (!name.trim() || !regNo.trim() || !email.trim()) {
+  const normalizeRequest = React.useCallback((doc) => {
+    if (!doc) return null;
+    return {
+      id: doc.$id,
+      status: doc.status || 'pending',
+      data: {
+        businessName: doc.businessName || '',
+        registrationNo: doc.registrationNo || '',
+        email: doc.email || '',
+        phone: doc.phone || '',
+        address: doc.address || '',
+        city: doc.city || '',
+        state: doc.state || '',
+        postcode: doc.postcode || '',
+        cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
+        website: doc.website || '',
+        theme: Array.isArray(doc.theme) ? doc.theme : (doc.theme ? [doc.theme] : []),
+        ambience: Array.isArray(doc.ambience) ? doc.ambience : (doc.ambience ? [doc.ambience] : []),
+        note: doc.note || doc.notes || '',
+      },
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadRequest = async () => {
+      try {
+        setLoading(true);
+        setFetchError('');
+        await ensureSession();
+        let ownerId = null;
+        const queries = [Query.limit(1), Query.orderDesc('$createdAt')];
+        const res = await db.listDocuments(DB_ID, COL.restaurantRequests, queries);
+        if (cancelled) return;
+        const doc = res.documents?.[0];
+        setBp(doc ? normalizeRequest(doc) : null);
+      } catch (error) {
+        if (!cancelled) {
+          setFetchError(error?.message || 'Unable to load your submission.');
+          setBp(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadRequest();
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizeRequest]);
+
+  const submit = async () => {
+    if (submittingForm) return;
+    const trimmedName = name.trim();
+    const trimmedRegNo = registrationNo.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedName || !trimmedRegNo || !trimmedEmail) {
       Alert.alert(
         'Missing info',
         'Please fill Business Name, Registration No., and Email.'
       );
       return;
     }
-    const data = {
-      name,
-      regNo,
-      email,
-      phone,
-      address,
-      city,
-      state: stateVal,
-      postcode,
-      cuisine,
-      website,
-      notes,
+
+    const cuisinesList = cuisines
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    const themeList = theme
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const ambienceList = ambience
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    const payload = {
+      businessName: trimmedName,
+      registrationNo: trimmedRegNo,
+      email: trimmedEmail,
+      phone: phone.trim() || null,
+      address: address.trim() || null,
+      city: city.trim() || null,
+      state: stateVal.trim() || null,
+      postcode: postcode.trim() || null,
+      cuisines: cuisinesList,
+      website: website.trim() || null,
+      theme: themeList,
+      ambience: ambienceList,
+      note: notes.trim() || null,
+      status: 'pending',
     };
-    submitBusinessProfile(data);
-    setBp(getBusinessProfile());
-    setShowForm(false);
-    Alert.alert(
-      'Thank you!',
-      'Your business registration has been submitted for moderation.'
-    );
+
+    try {
+      setSubmittingForm(true);
+      await ensureSession();
+      const doc = await db.createDocument(
+        DB_ID,
+        COL.restaurantRequests,
+        ID.unique(),
+        payload
+      );
+      setBp(normalizeRequest(doc));
+      setShowForm(false);
+      setName('');
+      setRegistrationNo('');
+      setEmail('');
+      setPhone('');
+      setAddress('');
+      setCity('');
+      setStateVal('');
+      setPostcode('');
+      setCuisines('');
+      setWebsite('');
+      setTheme('');
+      setAmbience('');
+      setNotes('');
+      Alert.alert(
+        'Thank you!',
+        'Your business registration has been submitted for moderation.'
+      );
+    } catch (error) {
+      Alert.alert('Submission failed', error?.message || 'Please try again later.');
+    } finally {
+      setSubmittingForm(false);
+    }
   };
 
   return (
@@ -91,6 +197,18 @@ export default function BusinessProfileScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {fetchError ? (
+          <View style={styles.card}>
+            <Text style={[styles.bodyCopy, { color: '#DC2626' }]}>{fetchError}</Text>
+          </View>
+        ) : null}
+
+        {loading && !bp && !showForm ? (
+          <View style={styles.card}>
+            <Text style={styles.bodyCopy}>Checking for existing submissions...</Text>
+          </View>
+        ) : null}
+
         {/* Pending/Approved state */}
         {bp && !showForm ? (
           <View style={styles.card}>
@@ -99,11 +217,20 @@ export default function BusinessProfileScreen() {
               text={bp.status === 'pending' ? 'Pending Review' : bp.status}
             />
             <View style={{ marginTop: 12, gap: 6 }}>
-              <MetaRow label="Business" value={bp.data.name} />
-              <MetaRow label="Reg No." value={bp.data.regNo} />
+              <MetaRow label="Business" value={bp.data.businessName} />
+              <MetaRow label="Reg No." value={bp.data.registrationNo} />
               <MetaRow label="Email" value={bp.data.email} />
               {!!bp.data.phone && <MetaRow label="Phone" value={bp.data.phone} />}
               {!!bp.data.address && <MetaRow label="Address" value={bp.data.address} />}
+              {!!bp.data.theme?.length && (
+                <MetaRow label="Theme" value={bp.data.theme.join(', ')} />
+              )}
+              {!!bp.data.ambience?.length && (
+                <MetaRow label="Ambience" value={bp.data.ambience.join(', ')} />
+              )}
+              {!!bp.data.cuisines?.length && (
+                <MetaRow label="Cuisines" value={bp.data.cuisines.join(', ')} />
+              )}
             </View>
             <Text style={styles.note}>
               Our team will contact you for verification and next steps.
@@ -135,8 +262,8 @@ export default function BusinessProfileScreen() {
             <LabeledInput label="Business Name *" value={name} onChangeText={setName} />
             <LabeledInput
               label="Registration No. (SSM) *"
-              value={regNo}
-              onChangeText={setRegNo}
+              value={registrationNo}
+              onChangeText={setRegistrationNo}
             />
             <LabeledInput
               label="Email *"
@@ -165,11 +292,21 @@ export default function BusinessProfileScreen() {
               onChangeText={setPostcode}
               keyboardType="number-pad"
             />
-            <LabeledInput label="Cuisine" value={cuisine} onChangeText={setCuisine} />
+            <LabeledInput label="Cuisines (comma separated)" value={cuisines} onChangeText={setCuisines} />
             <LabeledInput
               label="Website / Instagram (optional)"
               value={website}
               onChangeText={setWebsite}
+            />
+            <LabeledInput
+              label="Theme (comma separated)"
+              value={theme}
+              onChangeText={setTheme}
+            />
+            <LabeledInput
+              label="Ambience (comma separated)"
+              value={ambience}
+              onChangeText={setAmbience}
             />
             <LabeledInput
               label="Notes (optional)"
@@ -179,8 +316,14 @@ export default function BusinessProfileScreen() {
               minHeight={80}
             />
 
-            <TouchableOpacity onPress={submit} style={[styles.btn, styles.primaryBtn]}>
-              <Text style={styles.btnText}>Submit</Text>
+            <TouchableOpacity
+              onPress={submit}
+              style={[styles.btn, styles.primaryBtn, submittingForm && { opacity: 0.7 }]}
+              disabled={submittingForm}
+            >
+              <Text style={styles.btnText}>
+                {submittingForm ? 'Submitting...' : 'Submit'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setShowForm(false)}
@@ -191,34 +334,7 @@ export default function BusinessProfileScreen() {
           </View>
         )}
 
-        {/* Demo: Already Registered Restaurant */}
-        {!showForm && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Espurrsso Bar</Text>
-            <Text style={styles.bodyCopy}>Cat cafe - Mont Kiara, KL</Text>
-            <TouchableOpacity
-              onPress={() => {
-                const demoRestaurant = {
-                  id: 'rest-espurrsso-bar',
-                  name: 'Espurrsso Bar',
-                  location: 'Mont Kiara, KL',
-                  cuisines: ['cafe'],
-                  cuisine: 'cafe',
-                  ambience: ['cat cafe', 'cozy', 'family friendly'],
-                  rating: 4.7,
-                  averagePrice: 'RM18',
-                  averagePriceValue: 18,
-                  theme:
-                    'Cat cafe with specialty espresso and cuddly resident cats.',
-                };
-                navigation.navigate('ManageRestaurant', { restaurant: demoRestaurant });
-              }}
-              style={[styles.btn, styles.darkBtn]}
-            >
-              <Text style={styles.btnText}>Open Restaurant & Manage Menu</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Demo section removed */}
       </ScrollView>
     </SafeAreaView>
   );

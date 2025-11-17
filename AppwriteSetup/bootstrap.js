@@ -83,7 +83,11 @@ async function updateStringRequired(col, key, { required, def = null, array = fa
   await makeCol('items', 'Items');
   await makeCol('reviews', 'Reviews');
   await makeCol('foodlists', 'Foodlists', FOODLIST_PERMS); // 👈 includes user create
-  await makeCol('updates', 'Updates');
+  const UPDATES_PERMS = [
+    Permission.read(Role.any()),
+    Permission.create(Role.users()),
+  ];
+  await makeCol('updates', 'Updates', UPDATES_PERMS);
 
   console.log('✓ Collections ensured');
 
@@ -91,6 +95,7 @@ async function updateStringRequired(col, key, { required, def = null, array = fa
   await S('foodlists', 'name', 128, true);
   await S('foodlists', 'ownerId', 64);
   await S('foodlists', 'itemIds', 64, false, null, true);
+  await S('foodlists', 'collaborators', 64, false, null, true);
 
   // Optional: track createdAt
   await S('foodlists', 'createdAt', 64);

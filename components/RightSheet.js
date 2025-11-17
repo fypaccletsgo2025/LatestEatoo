@@ -12,7 +12,7 @@ export default function RightSheet({ open, onClose, widthPct = 0.88, children, t
 
   useEffect(() => {
     translateX.value = withTiming(open ? 0 : sheetWidth, { duration: 220 });
-  }, [open, sheetWidth]);
+  }, [open, sheetWidth, translateX]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],

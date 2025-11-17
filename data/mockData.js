@@ -454,6 +454,7 @@ export const mockFoodlists = [
     id: '2',
     name: 'Sweet Treats',
     items: availableItems.filter(i => ['Chocolate Brownie', 'Mango Sticky Rice', 'Eclair'].includes(i.name)),
+    collaborators: [],
   },
 ];
 
@@ -462,6 +463,7 @@ export const sampleInviteFoodlist = {
   id: 'invite-1',
   name: 'Nak makan apa ni',
   items: availableItems.filter(i => ['Spicy Ramen', 'Margarita Pizza', 'Grilled Chicken Chop'].includes(i.name)),
+  collaborators: [],
 };
 
 // Mock users derived from restaurant reviews
