@@ -8,12 +8,14 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { db, DB_ID, COL, ensureSession } from '../appwrite';
+import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
 import { Query, ID } from 'appwrite';
 import BackButton from '../components/BackButton';
+import { ManageRestaurantPanel } from './ManageRestaurantScreen';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -25,6 +27,63 @@ const BRAND = {
   inkMuted: '#6B7280',
 };
 
+const ensureArray = (value) => {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+};
+
+const getLinkedRestaurantId = (doc) => {
+  if (!doc) return null;
+  return (
+    doc.restaurantId ||
+    doc.restaurant_id ||
+    doc.linkedRestaurantId ||
+    doc.linkedRestaurant?.$id ||
+    doc.linkedRestaurant?.id ||
+    doc.restaurant?.$id ||
+    doc.restaurant?.id ||
+    doc.publishedRestaurantId ||
+    null
+  );
+};
+
+const formatRestaurantForManage = (doc) => {
+  if (!doc) return null;
+  const id = doc.$id || doc.id;
+  if (!id) return null;
+  const cuisines = ensureArray(doc.cuisines);
+  const ambience = ensureArray(doc.ambience);
+  const locationParts = [];
+  if (doc.location) locationParts.push(doc.location);
+  const cityState = [doc.city, doc.state].filter(Boolean).join(', ');
+  if (cityState) locationParts.push(cityState);
+  if (!locationParts.length && doc.address) locationParts.push(doc.address);
+  const location = locationParts.filter(Boolean).join(' • ');
+  const avgValueFromField =
+    typeof doc.averagePriceValue === 'number' ? doc.averagePriceValue : null;
+  const avgFromString = (() => {
+    if (!doc.averagePrice) return null;
+    const numeric = parseInt(String(doc.averagePrice).replace(/[^0-9]/g, ''), 10);
+    return Number.isFinite(numeric) ? numeric : null;
+  })();
+  const avgValue = avgValueFromField ?? avgFromString ?? 0;
+  const averagePrice =
+    doc.averagePrice || (avgValue ? `RM${avgValue}` : 'RM0');
+
+  return {
+    id,
+    name: doc.name || doc.businessName || 'My Restaurant',
+    location,
+    cuisines,
+    cuisine: cuisines[0] || '',
+    ambience,
+    rating: typeof doc.rating === 'number' ? doc.rating : 0,
+    averagePriceValue: avgValue,
+    averagePrice,
+    theme: doc.theme || doc.summary || '',
+  };
+};
+
 export default function BusinessProfileScreen() {
   const navigation = useNavigation();
   const [bp, setBp] = React.useState(null);
@@ -32,6 +91,15 @@ export default function BusinessProfileScreen() {
   const [loading, setLoading] = React.useState(true);
   const [fetchError, setFetchError] = React.useState('');
   const [submittingForm, setSubmittingForm] = React.useState(false);
+  const [currentUser, setCurrentUser] = React.useState(null);
+  const [managedRestaurant, setManagedRestaurant] = React.useState(null);
+  const [loadingManagedRestaurant, setLoadingManagedRestaurant] = React.useState(false);
+  const [managedRestaurantError, setManagedRestaurantError] = React.useState('');
+
+  const managedRestaurantMeta = React.useMemo(
+    () => (managedRestaurant ? formatRestaurantForManage(managedRestaurant) : null),
+    [managedRestaurant]
+  );
 
   // Form fields
   const [name, setName] = React.useState('');
@@ -50,9 +118,12 @@ export default function BusinessProfileScreen() {
 
   const normalizeRequest = React.useCallback((doc) => {
     if (!doc) return null;
+    const restaurantId = getLinkedRestaurantId(doc);
     return {
       id: doc.$id,
       status: doc.status || 'pending',
+      restaurantId,
+      ownerId: doc.ownerId || doc.owner_id || null,
       data: {
         businessName: doc.businessName || '',
         registrationNo: doc.registrationNo || '',
@@ -78,16 +149,44 @@ export default function BusinessProfileScreen() {
         setLoading(true);
         setFetchError('');
         await ensureSession();
-        let ownerId = null;
-        const queries = [Query.limit(1), Query.orderDesc('$createdAt')];
-        const res = await db.listDocuments(DB_ID, COL.restaurantRequests, queries);
+        let me = null;
+        try {
+          me = await account.get();
+        } catch (err) {
+          console.warn('BusinessProfile: unable to resolve current account', err?.message || err);
+        }
+        if (!cancelled) {
+          setCurrentUser(me);
+        }
+        const baseQueries = [Query.orderDesc('$createdAt'), Query.limit(1)];
+        const filters = [...baseQueries];
+        if (me?.$id) {
+          filters.push(Query.equal('ownerId', me.$id));
+        }
+
+        let res = null;
+        try {
+          res = await db.listDocuments(DB_ID, COL.restaurantRequests, filters);
+        } catch (err) {
+          if (me?.$id) {
+            console.warn('BusinessProfile: owner-filtered fetch failed, retrying without filter', err?.message || err);
+            res = await db.listDocuments(DB_ID, COL.restaurantRequests, baseQueries);
+          } else {
+            throw err;
+          }
+        }
+
         if (cancelled) return;
-        const doc = res.documents?.[0];
+        const doc = res?.documents?.[0];
         setBp(doc ? normalizeRequest(doc) : null);
+        if (!doc) {
+          setManagedRestaurant(null);
+        }
       } catch (error) {
         if (!cancelled) {
           setFetchError(error?.message || 'Unable to load your submission.');
           setBp(null);
+          setManagedRestaurant(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -98,6 +197,43 @@ export default function BusinessProfileScreen() {
       cancelled = true;
     };
   }, [normalizeRequest]);
+
+  const canManageRestaurant = Boolean(bp?.status === 'approved' && bp?.restaurantId);
+
+  React.useEffect(() => {
+    if (!bp || !bp.restaurantId) {
+      setManagedRestaurant(null);
+      setManagedRestaurantError('');
+      return;
+    }
+    const rid = bp.restaurantId;
+    let cancelled = false;
+    const loadRestaurant = async () => {
+      try {
+        setLoadingManagedRestaurant(true);
+        setManagedRestaurantError('');
+        const doc = await db.getDocument(DB_ID, COL.restaurants, rid);
+        if (!cancelled) {
+          setManagedRestaurant(doc);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setManagedRestaurant(null);
+          setManagedRestaurantError(err?.message || 'Unable to load your restaurant page.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingManagedRestaurant(false);
+        }
+      }
+    };
+    if (rid) {
+      loadRestaurant();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [bp]);
 
   const submit = async () => {
     if (submittingForm) return;
@@ -126,26 +262,35 @@ export default function BusinessProfileScreen() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
-    const payload = {
-      businessName: trimmedName,
-      registrationNo: trimmedRegNo,
-      email: trimmedEmail,
-      phone: phone.trim() || null,
-      address: address.trim() || null,
-      city: city.trim() || null,
-      state: stateVal.trim() || null,
-      postcode: postcode.trim() || null,
-      cuisines: cuisinesList,
-      website: website.trim() || null,
-      theme: themeList,
-      ambience: ambienceList,
-      note: notes.trim() || null,
-      status: 'pending',
-    };
-
     try {
       setSubmittingForm(true);
       await ensureSession();
+      let ownerProfile = null;
+      try {
+        ownerProfile = await account.get();
+        if (ownerProfile && !currentUser) {
+          setCurrentUser(ownerProfile);
+        }
+      } catch (err) {
+        console.warn('BusinessProfile: unable to fetch account before submit', err?.message || err);
+      }
+      const payload = {
+        businessName: trimmedName,
+        registrationNo: trimmedRegNo,
+        email: trimmedEmail,
+        phone: phone.trim() || null,
+        address: address.trim() || null,
+        city: city.trim() || null,
+        state: stateVal.trim() || null,
+        postcode: postcode.trim() || null,
+        cuisines: cuisinesList,
+        website: website.trim() || null,
+        theme: themeList,
+        ambience: ambienceList,
+        note: notes.trim() || null,
+        status: 'pending',
+        ownerId: ownerProfile?.$id || currentUser?.$id || null,
+      };
       const doc = await db.createDocument(
         DB_ID,
         COL.restaurantRequests,
@@ -235,6 +380,59 @@ export default function BusinessProfileScreen() {
             <Text style={styles.note}>
               Our team will contact you for verification and next steps.
             </Text>
+          </View>
+        ) : null}
+
+        {bp?.status !== 'approved' && bp?.restaurantId ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Verification in Progress</Text>
+            <Text style={styles.bodyCopy}>
+              We’ve linked your submission to the restaurant page. Once our team approves it, you’ll be able to update your menu and details from here.
+            </Text>
+          </View>
+        ) : null}
+
+        {canManageRestaurant ? (
+          <View style={styles.manageWrapper}>
+            <View style={styles.manageHeader}>
+              <Text style={styles.manageTitle}>
+                Manage "{managedRestaurantMeta?.name || 'Your Restaurant'}"
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.viewLink,
+                  !managedRestaurantMeta ? styles.viewLinkDisabled : null,
+                ]}
+                disabled={!managedRestaurantMeta}
+                onPress={() =>
+                  navigation.navigate('RestaurantDetail', {
+                    restaurantId: managedRestaurantMeta?.id,
+                  })
+                }
+              >
+                <Text
+                  style={[
+                    styles.viewLinkText,
+                    !managedRestaurantMeta ? styles.viewLinkDisabledText : null,
+                  ]}
+                >
+                  View Public Page
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.bodyCopy}>
+              Keep your public page accurate by updating menu items and details below.
+            </Text>
+            {loadingManagedRestaurant ? (
+              <ActivityIndicator color={BRAND.primary} style={{ marginTop: 16 }} />
+            ) : managedRestaurantMeta ? (
+              <ManageRestaurantPanel restaurant={managedRestaurantMeta} embedded />
+            ) : (
+              <Text style={[styles.bodyCopy, { color: '#B45309', marginTop: 12 }]}>
+                {managedRestaurantError ||
+                  'We are linking your live restaurant page. Please check back soon.'}
+              </Text>
+            )}
           </View>
         ) : null}
 
@@ -432,6 +630,39 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 16,
+  },
+  manageBtn: {
+    marginTop: 12,
+  },
+  manageWrapper: {
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: BRAND.card,
+    gap: 12,
+  },
+  manageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  manageTitle: { fontSize: 16, fontWeight: '800', color: BRAND.ink },
+  viewLink: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    backgroundColor: '#fff',
+  },
+  viewLinkText: { color: BRAND.primary, fontWeight: '700', fontSize: 12 },
+  viewLinkDisabled: {
+    opacity: 0.6,
+  },
+  viewLinkDisabledText: {
+    color: BRAND.inkMuted,
   },
   primaryBtn: { backgroundColor: BRAND.primary },
   darkBtn: { backgroundColor: '#1F2937' },

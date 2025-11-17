@@ -3,6 +3,7 @@
 
 import { db, DB_ID, COL, account, ensureSession } from '../appwrite';
 import { Query } from 'appwrite';
+import { getCatalog } from '../services/catalogService';
 
 const SMOOTHING = 1;
 
@@ -79,87 +80,6 @@ async function listAllDocuments(collectionId, queries = [], pageSize = 100) {
     cursor = docs[docs.length - 1].$id;
   }
   return out;
-}
-
-// ---------- data loading ----------
-async function loadRestaurantsWithMenusAndItems() {
-  // Load base entities
-  const [restaurants, menus, items] = await Promise.all([
-    listAllDocuments(COL.restaurants),
-    listAllDocuments(COL.menus),
-    listAllDocuments(COL.items),
-  ]);
-
-  // index menus by id and by restaurantId
-  const menuById = new Map(menus.map((m) => [m.$id, m]));
-  const menusByRestaurant = new Map();
-  menus.forEach((m) => {
-    const rid = m.restaurantId;
-    if (!rid) return;
-    if (!menusByRestaurant.has(rid)) menusByRestaurant.set(rid, []);
-    menusByRestaurant.get(rid).push(m);
-  });
-
-  // group items by restaurantId and by menuId
-  const itemsByRestaurant = new Map();
-  const itemsById = new Map();
-  items.forEach((it) => {
-    itemsById.set(it.$id, it);
-    const rid = it.restaurantId;
-    if (!rid) return;
-    if (!itemsByRestaurant.has(rid)) itemsByRestaurant.set(rid, []);
-    itemsByRestaurant.get(rid).push(it);
-  });
-
-  // assemble restaurant objects with menus & items (light shape)
-  const richRestaurants = restaurants.map((r) => {
-    const rid = r.$id;
-    const rMenus = menusByRestaurant.get(rid) || [];
-    const rItems = itemsByRestaurant.get(rid) || [];
-
-    // attach items into menus (if present). Items without menu match go into a synthetic "Uncategorized"
-    const menusWithItems = rMenus.map((m) => ({
-      id: m.$id,
-      name: m.name || 'Menu',
-      items: rItems.filter((it) => it.menuId === m.$id).map((it) => ({
-        id: it.$id,
-        name: it.name,
-        tags: ensureArray(it.tags),
-        type: it.type || null,
-        cuisine: it.cuisine || null,
-        priceRM: it.priceRM,
-      })),
-    }));
-
-    // orphan items (no menu or unknown menu)
-    const orphanItems = rItems
-      .filter((it) => !it.menuId || !menuById.has(it.menuId))
-      .map((it) => ({
-        id: it.$id,
-        name: it.name,
-        tags: ensureArray(it.tags),
-        type: it.type || null,
-        cuisine: it.cuisine || null,
-        priceRM: it.priceRM,
-      }));
-
-    const menusMerged =
-      orphanItems.length > 0
-        ? [...menusWithItems, { id: 'uncategorized', name: 'Uncategorized', items: orphanItems }]
-        : menusWithItems;
-
-    return {
-      id: rid,
-      name: r.name,
-      cuisines: ensureArray(r.cuisines),
-      ambience: ensureArray(r.ambience),
-      menus: menusMerged,
-      // keep raw for future extensions if needed
-      _raw: r,
-    };
-  });
-
-  return { restaurants: richRestaurants, items, itemsById };
 }
 
 async function loadUserPositiveRestaurantIds(userId, itemsById) {
@@ -373,7 +293,7 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
   const me = await account.get();
   const userId = me.$id;
 
-  const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
+  const { restaurants, itemsById } = await getCatalog();
   const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
 
   const model = buildModel({ restaurants, positiveIds });
@@ -396,7 +316,7 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
  * Positive signals still come from Foodlists owned by that user.
  */
 export async function createNaiveBayesModelForUserId(userId) {
-  const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
+  const { restaurants, itemsById } = await getCatalog();
   const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
   return buildModel({ restaurants, positiveIds });
 }

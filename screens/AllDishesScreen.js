@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   StatusBar,
   StyleSheet,
@@ -11,12 +12,37 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import BackButton from '../components/BackButton';
-import { availableItems } from '../data/mockData';
+import { getAllItems } from '../services/catalogService';
 
 export default function AllDishesScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const items = route.params?.items ?? availableItems;
+  const routeItems = route.params?.items;
+  const [items, setItems] = React.useState(routeItems || []);
+  const [loading, setLoading] = React.useState(!routeItems);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    if (routeItems && routeItems.length) {
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getAllItems()
+      .then((list) => {
+        if (!cancelled) setItems(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message || 'Unable to load dishes.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [routeItems]);
 
   const openDish = (item) => {
     navigation.navigate('PreferenceItemDetail', { item });
@@ -57,11 +83,19 @@ export default function AllDishesScreen() {
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Icon name="refresh-cw" size={28} color="#FF4D00" />
-              <Text style={styles.emptyTitle}>No dishes found</Text>
-              <Text style={styles.emptySubtitle}>
-                Try tweaking your filters to find more great meals.
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="#FF4D00" size="small" />
+              ) : (
+                <>
+                  <Icon name="refresh-cw" size={28} color="#FF4D00" />
+                  <Text style={styles.emptyTitle}>
+                    {error ? 'Failed to load dishes' : 'No dishes found'}
+                  </Text>
+                  <Text style={styles.emptySubtitle}>
+                    {error || 'Try tweaking your filters to find more great meals.'}
+                  </Text>
+                </>
+              )}
             </View>
           }
         />

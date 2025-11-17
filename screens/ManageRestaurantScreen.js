@@ -26,25 +26,43 @@ const BRAND = {
   inkMuted: '#6B7280',
 };
 
-export default function ManageRestaurantScreen({ route }) {
-  const demoRestaurant = {
-    id: 'rest-espurrsso-bar',
-    name: 'Espurrsso Bar',
-    location: 'Mont Kiara, KL',
-    cuisines: ['cafe'],
-    cuisine: 'cafe',
-    ambience: ['cat cafe', 'cozy', 'family friendly'],
-    rating: 4.7,
-    averagePrice: 'RM18',
-    averagePriceValue: 18,
-    theme: 'Cat cafe with specialty espresso and cuddly resident cats.',
-  };
+const demoRestaurant = {
+  id: 'rest-espurrsso-bar',
+  name: 'Espurrsso Bar',
+  location: 'Mont Kiara, KL',
+  cuisines: ['cafe'],
+  cuisine: 'cafe',
+  ambience: ['cat cafe', 'cozy', 'family friendly'],
+  rating: 4.7,
+  averagePrice: 'RM18',
+  averagePriceValue: 18,
+  theme: 'Cat cafe with specialty espresso and cuddly resident cats.',
+};
 
+export default function ManageRestaurantScreen({ route }) {
+  const navigation = useNavigation();
   const restaurant = route?.params?.restaurant || demoRestaurant;
+
+  return (
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={['top', 'right', 'bottom', 'left']}
+    >
+      <View style={styles.topBar}>
+        <BackButton onPress={() => navigation.goBack()} />
+        <Text style={styles.topBarTitle}>Manage Menu</Text>
+      </View>
+      <ManageRestaurantPanel restaurant={restaurant} />
+    </SafeAreaView>
+  );
+}
+
+export function ManageRestaurantPanel({ restaurant, embedded = false }) {
+  const resolvedRestaurant = restaurant || demoRestaurant;
   const [version, setVersion] = useState(0);
   const items = useMemo(
-    () => getUserItemsForRestaurant(restaurant.id),
-    [restaurant.id, version]
+    () => getUserItemsForRestaurant(resolvedRestaurant.id),
+    [resolvedRestaurant.id, version]
   );
 
   const [showAdd, setShowAdd] = useState(false);
@@ -71,17 +89,17 @@ export default function ManageRestaurantScreen({ route }) {
       type: type.trim() || 'meal',
       price: `RM${pr}`,
       cuisine:
-        restaurant.cuisine ||
-        (restaurant.cuisines && restaurant.cuisines[0]) ||
+        resolvedRestaurant.cuisine ||
+        (resolvedRestaurant.cuisines && resolvedRestaurant.cuisines[0]) ||
         '',
       description: desc.trim(),
       tags: tagArr,
       rating: 0,
       reviews: [],
-      restaurant: restaurant.name,
-      location: restaurant.location,
+      restaurant: resolvedRestaurant.name,
+      location: resolvedRestaurant.location,
     };
-    addUserItem(restaurant, item);
+    addUserItem(resolvedRestaurant, item);
     setVersion((v) => v + 1);
     setShowAdd(false);
     setName('');
@@ -91,163 +109,184 @@ export default function ManageRestaurantScreen({ route }) {
     setTags('');
   };
 
-  const navigation = useNavigation();
+  const menuContent = (
+    <>
+      <View style={styles.heroCard}>
+        <Text style={styles.name}>{resolvedRestaurant.name}</Text>
+        <Text style={styles.meta}>{resolvedRestaurant.location}</Text>
+        <View style={styles.heroChipRow}>
+          <Badge text={`${resolvedRestaurant.rating}\u2605`} />
+          <Badge text={resolvedRestaurant.averagePrice} />
+          <Badge text={(resolvedRestaurant.cuisines || []).join(', ')} />
+        </View>
+      </View>
+
+      {!!resolvedRestaurant.theme && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Theme</Text>
+          <View style={styles.themeBox}>
+            <Text style={styles.body}>{resolvedRestaurant.theme}</Text>
+          </View>
+        </View>
+      )}
+
+      {!!resolvedRestaurant.ambience?.length && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ambience</Text>
+          <View style={styles.ambienceRow}>
+            {resolvedRestaurant.ambience.map((mood) => (
+              <View key={mood} style={styles.chip}>
+                <Text style={styles.chipText}>{mood}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      <View style={styles.section}>
+        <View style={styles.menuHeader}>
+          <Text style={styles.sectionTitle}>Menu Items</Text>
+          <TouchableOpacity
+            onPress={() => setShowAdd(true)}
+            style={styles.addButton}
+          >
+            <Ionicons name="add" size={16} color={BRAND.primary} />
+            <Text style={styles.addButtonText}>Add Item</Text>
+          </TouchableOpacity>
+        </View>
+
+        {items.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyTitle}>No menu items yet</Text>
+            <Text style={styles.emptyBody}>
+              Add your first signature dish, drink, or dessert to showcase what makes your spot special.
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={items}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ gap: 12 }}
+            renderItem={({ item }) => (
+              <View style={styles.itemCard}>
+                <Text style={styles.itemTitle}>{item.name}</Text>
+                <Text style={{ color: '#FFEBD8', marginTop: 6 }}>{item.price}</Text>
+                {!!item.type && (
+                  <Text style={{ color: '#FFEBD8', fontSize: 12, marginTop: 4 }}>
+                    {item.type}
+                  </Text>
+                )}
+                {!!item.description && (
+                  <Text
+                    style={{
+                      color: '#FFEBD8',
+                      fontSize: 12,
+                      marginTop: 10,
+                      lineHeight: 16,
+                    }}
+                    numberOfLines={3}
+                  >
+                    {item.description}
+                  </Text>
+                )}
+              </View>
+            )}
+          />
+        )}
+      </View>
+    </>
+  );
+
+  const containerStyles = [
+    styles.container,
+    embedded ? styles.embeddedContainer : null,
+  ];
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={['top', 'right', 'bottom', 'left']}
-    >
-      <View style={styles.topBar}>
-        <BackButton onPress={() => navigation.goBack()} />
-        <Text style={styles.topBarTitle}>Manage Menu</Text>
-      </View>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={{ paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.heroCard}>
-          <Text style={styles.name}>{restaurant.name}</Text>
-          <Text style={styles.meta}>{restaurant.location}</Text>
-          <View style={styles.heroChipRow}>
-            <Badge text={`${restaurant.rating}\u2605`} />
-            <Badge text={restaurant.averagePrice} />
-            <Badge text={(restaurant.cuisines || []).join(', ')} />
+    <View style={embedded ? styles.embeddedRoot : styles.panelRoot}>
+      {embedded ? (
+        <View style={containerStyles}>{menuContent}</View>
+      ) : (
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {menuContent}
+        </ScrollView>
+      )}
+
+      {showAdd ? (
+        <View style={styles.overlay} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.overlayBg}
+            onPress={() => setShowAdd(false)}
+          />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add Menu Item</Text>
+            <Text style={styles.modalLabel}>Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Spicy Ramen"
+              placeholderTextColor={BRAND.inkMuted}
+              value={name}
+              onChangeText={setName}
+            />
+            <Text style={styles.modalLabel}>Type</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="meal, dessert, drink..."
+              placeholderTextColor={BRAND.inkMuted}
+              value={type}
+              onChangeText={setType}
+            />
+            <Text style={styles.modalLabel}>Price (RM)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 18"
+              placeholderTextColor={BRAND.inkMuted}
+              keyboardType="numeric"
+              value={price}
+              onChangeText={setPrice}
+            />
+            <Text style={styles.modalLabel}>Description</Text>
+            <TextInput
+              style={[styles.input, { height: 80 }]}
+              placeholder="Short description"
+              placeholderTextColor={BRAND.inkMuted}
+              multiline
+              value={desc}
+              onChangeText={setDesc}
+            />
+            <Text style={styles.modalLabel}>Tags (comma separated)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="spicy, vegetarian..."
+              placeholderTextColor={BRAND.inkMuted}
+              value={tags}
+              onChangeText={setTags}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalSecondary]}
+                onPress={() => setShowAdd(false)}
+              >
+                <Text style={styles.modalSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalPrimary]}
+                onPress={submit}
+              >
+                <Text style={styles.modalPrimaryText}>Save Item</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-
-        {!!restaurant.theme && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Theme</Text>
-            <View style={styles.themeBox}>
-              <Text style={styles.body}>{restaurant.theme}</Text>
-            </View>
-          </View>
-        )}
-
-        {(restaurant.ambience || []).length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Ambience</Text>
-            <View style={styles.ambienceRow}>
-              {restaurant.ambience.map((a, idx) => (
-                <View key={`amb-${idx}`} style={styles.chip}>
-                  <Text style={styles.chipText}>{a}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <View style={styles.menuHeader}>
-            <Text style={styles.sectionTitle}>Menu</Text>
-            <TouchableOpacity
-              onPress={() => setShowAdd(true)}
-              style={styles.addButton}
-            >
-              <Ionicons name="add" size={18} color={BRAND.primary} />
-              <Text style={styles.addButtonText}>Add item</Text>
-            </TouchableOpacity>
-          </View>
-          {items.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>No items yet</Text>
-              <Text style={styles.emptyBody}>
-                Add your dishes or drinks to start showcasing the menu.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={items}
-              keyExtractor={(i) => i.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingVertical: 6, gap: 12 }}
-              renderItem={({ item }) => (
-                <View style={styles.itemCard}>
-                  <Text style={styles.itemTitle}>{item.name}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 6 }}>
-                    <Badge text={item.price} />
-                    <Badge text={item.type} />
-                    <Badge text={`${item.rating}\u2605`} />
-                  </View>
-                </View>
-              )}
-            />
-          )}
-        </View>
-
-        {showAdd && (
-          <View style={styles.overlay}>
-            <TouchableOpacity
-              style={styles.overlayBg}
-              onPress={() => setShowAdd(false)}
-            />
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Add Menu Item</Text>
-
-              <Text style={styles.modalLabel}>Name</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                style={styles.input}
-                placeholder="e.g. Mocha Latte"
-              />
-
-              <Text style={styles.modalLabel}>Type</Text>
-              <TextInput
-                value={type}
-                onChangeText={setType}
-                style={styles.input}
-                placeholder="drink / meal / dessert"
-              />
-
-              <Text style={styles.modalLabel}>Price (RM)</Text>
-              <TextInput
-                value={price}
-                onChangeText={setPrice}
-                style={styles.input}
-                keyboardType="number-pad"
-                placeholder="e.g. 15"
-              />
-
-              <Text style={styles.modalLabel}>Description</Text>
-              <TextInput
-                value={desc}
-                onChangeText={setDesc}
-                style={[styles.input, { minHeight: 70 }]}
-                multiline
-                placeholder="Optional"
-              />
-
-              <Text style={styles.modalLabel}>Tags (comma separated)</Text>
-              <TextInput
-                value={tags}
-                onChangeText={setTags}
-                style={styles.input}
-                placeholder="e.g. signature, vegan"
-              />
-
-              <View style={{ flexDirection: 'row', marginTop: 16, gap: 10 }}>
-                <TouchableOpacity
-                  onPress={submit}
-                  style={[styles.modalBtn, styles.modalPrimary]}
-                >
-                  <Text style={styles.modalPrimaryText}>Add item</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setShowAdd(false)}
-                  style={[styles.modalBtn, styles.modalSecondary]}
-                >
-                  <Text style={styles.modalSecondaryText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+      ) : null}
+    </View>
   );
 }
 
@@ -260,18 +299,30 @@ function Badge({ text }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: BRAND.bg },
+  safeArea: { flex: 1, backgroundColor: BRAND.bg, paddingHorizontal: 20 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
     gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
-    backgroundColor: BRAND.bg,
   },
-  topBarTitle: { fontSize: 20, fontWeight: '800', color: BRAND.ink },
+  topBarTitle: { fontSize: 18, fontWeight: '800', color: BRAND.ink },
   container: { flex: 1, backgroundColor: BRAND.bg, paddingHorizontal: 20 },
+  panelRoot: {
+    flex: 1,
+    position: 'relative',
+    width: '100%',
+  },
+  embeddedRoot: {
+    width: '100%',
+    position: 'relative',
+    backgroundColor: 'transparent',
+  },
+  embeddedContainer: {
+    flex: undefined,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+  },
   heroCard: {
     backgroundColor: BRAND.primary,
     padding: 18,

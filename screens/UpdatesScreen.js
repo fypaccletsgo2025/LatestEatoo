@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Query } from 'appwrite';
 import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
-import { availableRestaurants } from '../data/mockData';
+import { getAllRestaurants } from '../services/catalogService';
 
 const THEME_COLOR = '#FF4D00';
 const BG_COLOR = '#FFF5ED';
@@ -81,7 +81,7 @@ function Header({ onAddPress }) {
   );
 }
 
-function Post({ post }) {
+function Post({ post, restaurants }) {
   const navigation = useNavigation();
   const date = new Date(post.dateISO);
   const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -95,7 +95,7 @@ function Post({ post }) {
       if (m.index > lastIndex) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex, m.index)}</Text>);
       const name = m[1];
       const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
-      const r = (availableRestaurants || []).find(rr => norm(rr.name) === norm(name));
+      const r = (restaurants || []).find(rr => norm(rr.name) === norm(name));
       parts.push(
         <Text
           key={`m-${m.index}`}
@@ -135,6 +135,20 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
   const [fetchError, setFetchError] = React.useState('');
   const [posting, setPosting] = React.useState(false);
   const [postError, setPostError] = React.useState('');
+  const [restaurantDirectory, setRestaurantDirectory] = React.useState([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    getAllRestaurants()
+      .then((list) => {
+        if (!cancelled) setRestaurantDirectory(list || []);
+      })
+      .catch(() => {
+        if (!cancelled) setRestaurantDirectory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Modal composer state
   const [author, setAuthor] = React.useState('');
@@ -144,17 +158,17 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
 
   // Tag sources
   const ownerTags = React.useMemo(
-    () => (availableRestaurants || []).map(r => ({ id: r.id, name: r.name, type: 'owner' })),
-    []
+    () => (restaurantDirectory || []).map(r => ({ id: r.id, name: r.name, type: 'owner' })),
+    [restaurantDirectory]
   );
   const userTags = React.useMemo(() => {
     const users = new Set();
-    (availableRestaurants || []).forEach(r => {
+    (restaurantDirectory || []).forEach(r => {
       (r.reviews || []).forEach(rv => users.add(rv.user));
     });
     (feed || []).forEach(p => { if (p.role === 'user') users.add(p.author); });
     return Array.from(users).map(u => ({ id: `user-${u}`, name: u, type: 'user' }));
-  }, [feed]);
+  }, [feed, restaurantDirectory]);
   const allTags = React.useMemo(() => [...ownerTags, ...userTags], [ownerTags, userTags]);
 
   const visibleSuggestions = React.useMemo(() => {
@@ -354,7 +368,7 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
       <FlatList
         data={feed}
         keyExtractor={(p) => p.id}
-        renderItem={({ item }) => <Post post={item} />}
+        renderItem={({ item }) => <Post post={item} restaurants={restaurantDirectory} />}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}

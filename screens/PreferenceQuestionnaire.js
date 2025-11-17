@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { availableItems, availableRestaurants } from '../data/mockData';
+import { useCatalogData } from '../hooks/useCatalogData';
 import { replacePreferenceSelections } from '../state/preferenceSelectionsStore';
 
 function Chip({ label, selected, onPress }) {
@@ -37,6 +37,12 @@ function SectionCard({ icon, title, description, children }) {
 export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   const {
+    restaurants: availableRestaurants,
+    items: availableItems,
+    loading: catalogLoading,
+    error: catalogError,
+  } = useCatalogData();
+  const {
     selectedDiet: preDiet = [],
     selectedCuisine: preCuisine = [],
     selectedMood: preMood = [],
@@ -44,11 +50,17 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
     onComplete,
   } = route?.params || {};
 
-  const dietOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.type))), []);
-  const cuisineOptions = useMemo(() => Array.from(new Set(availableItems.map(i => i.cuisine))), []);
+  const dietOptions = useMemo(
+    () => Array.from(new Set((availableItems || []).map((i) => i.type).filter(Boolean))),
+    [availableItems]
+  );
+  const cuisineOptions = useMemo(
+    () => Array.from(new Set((availableItems || []).map((i) => i.cuisine).filter(Boolean))),
+    [availableItems]
+  );
   const moodOptions = useMemo(
-    () => Array.from(new Set((availableRestaurants || []).flatMap(r => r.ambience || []))),
-    []
+    () => Array.from(new Set((availableRestaurants || []).flatMap(r => r.ambience || []).filter(Boolean))),
+    [availableRestaurants]
   );
   const priceOptions = ['RM0-RM10', 'RM11-RM20', 'RM21-RM30', 'RM31+'];
 
@@ -131,7 +143,11 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
       >
-        <SectionCard icon="coffee" title="Type" description="Pick what you’re vibing with">
+        {catalogLoading ? (
+          <Text style={styles.loadingText}>Loading the latest menu data...</Text>
+        ) : null}
+        {catalogError ? <Text style={styles.errorText}>{catalogError}</Text> : null}
+        <SectionCard icon="coffee" title="Type" description="Pick what you're vibing with">
           <View style={styles.chipsWrap}>
             {dietOptions.map(opt => (
               <Chip
@@ -268,6 +284,8 @@ const styles = StyleSheet.create({
 
   // Scroll content
   scrollContent: { paddingTop: 18, paddingHorizontal: 16, gap: 18 },
+  loadingText: { color: '#6B4A3F', marginBottom: 8, fontStyle: 'italic' },
+  errorText: { color: '#B91C1C', marginBottom: 12, fontWeight: '700' },
 
   // Section cards
   sectionCard: {

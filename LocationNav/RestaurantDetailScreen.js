@@ -25,7 +25,7 @@ import { Polyline as MapPolyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import { availableItems } from '../data/mockData';
+import { getAllItems } from '../services/catalogService';
 import { getUserItemsForRestaurant } from '../state/userMenusStore';
 import {
   isRestaurantSaved,
@@ -821,11 +821,32 @@ export default function RestaurantDetailScreen({ route, navigation }) {
     [collapsedSnap, expandedSnap, sheetTranslateY],
   );
 
+  const [catalogItems, setCatalogItems] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    getAllItems()
+      .then((list) => {
+        if (!cancelled) setCatalogItems(list || []);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const items = useMemo(() => {
-    const base = availableItems.filter((i) => i.restaurant === restaurant.name);
-    const user = getUserItemsForRestaurant(restaurant.id);
-    return [...base, ...user];
-  }, [restaurant.name, restaurant.id]);
+    const normalizedName = String(restaurant?.name || '').toLowerCase();
+    const base = catalogItems.filter((entry) => {
+      if (restaurant?.id) {
+        return entry.restaurantId === restaurant.id;
+      }
+      return String(entry.restaurant || '').toLowerCase() === normalizedName;
+    });
+    const userItems = restaurant?.id ? getUserItemsForRestaurant(restaurant.id) : [];
+    return [...base, ...userItems];
+  }, [catalogItems, restaurant]);
 
   const [userReviews, setUserReviews] = useState(getUserReviews(restaurant.id));
   const [showReview, setShowReview] = useState(false);

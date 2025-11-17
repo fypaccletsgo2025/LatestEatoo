@@ -1,7 +1,7 @@
 // screens/PreferenceMainPage.js
 import React, { useMemo, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
-import { availableItems, availableRestaurants } from '../data/mockData';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
+import { useCatalogData } from '../hooks/useCatalogData';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
 import {
   arePreferenceSelectionsEqual,
@@ -12,11 +12,19 @@ import {
 } from '../state/preferenceSelectionsStore';
 
 export default function PreferenceMainPage({ route, navigation, externalSelections }) {
+  const {
+    restaurants: availableRestaurants,
+    items: availableItems,
+    loading: catalogLoading,
+    error: catalogError,
+  } = useCatalogData();
   const selections = usePreferenceSelections();
   const selectedDiet = selections.selectedDiet;
   const selectedCuisine = selections.selectedCuisine;
   const selectedMood = selections.selectedMood;
   const selectedPrice = selections.selectedPrice;
+  const safeItems = Array.isArray(availableItems) ? availableItems : [];
+  const safeRestaurants = Array.isArray(availableRestaurants) ? availableRestaurants : [];
 
   const incomingParams = route?.params;
 
@@ -35,7 +43,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
   // -------- Filtering + sorting --------
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const items = availableItems.filter(item => {
+    const items = safeItems.filter(item => {
       const dietMatch =
         selectedDiet.length === 0 ||
         selectedDiet.some(d => d.toLowerCase() === String(item.type).toLowerCase());
@@ -45,7 +53,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
         selectedCuisine.some(c => c.toLowerCase() === String(item.cuisine).toLowerCase());
 
       // Match mood/ambience via the restaurant, not item
-      const r = availableRestaurants.find(rr => rr.name === item.restaurant);
+      const r = safeRestaurants.find(rr => rr.name === item.restaurant);
       const ambience = (r?.ambience || []).map(x => String(x).toLowerCase().replace(/ /g, ''));
       const moodMatch = selectedMood.length === 0 || selectedMood.every(m => ambience.includes(String(m).toLowerCase().replace(/ /g, '')));
 
@@ -80,11 +88,11 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
       sorted.sort((a, b) => parseInt(String(b.price).replace('RM', '')) - parseInt(String(a.price).replace('RM', '')));
     }
     return sorted;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy]);
+  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy, availableItems, availableRestaurants]);
 
   const filteredRestaurants = useMemo(() => {
     const term = search.trim().toLowerCase();
-    let list = availableRestaurants.filter(r => {
+    let list = safeRestaurants.filter(r => {
       const cuisineMatch =
         selectedCuisine.length === 0 ||
         selectedCuisine.some(c => {
@@ -100,10 +108,10 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
       // If diet is specified, make sure the restaurant has at least one item of those types
       const dietMatch =
         selectedDiet.length === 0 ||
-        availableItems.some(i => i.restaurant === r.name && selectedDiet.map(d => String(d).toLowerCase()).includes(String(i.type).toLowerCase()));
+        safeItems.some(i => i.restaurant === r.name && selectedDiet.map(d => String(d).toLowerCase()).includes(String(i.type).toLowerCase()));
 
       // Price: prefer existence of at least one item in price ranges; fallback to average
-      const itemPriceMatch = selectedPrice.length === 0 || availableItems.some(i => {
+      const itemPriceMatch = selectedPrice.length === 0 || safeItems.some(i => {
         if (i.restaurant !== r.name) return false;
         const p = parseInt(String(i.price).replace('RM', ''));
         return selectedPrice.some(range => (
@@ -116,7 +124,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
       const priceMatch = selectedPrice.length === 0 ? true : itemPriceMatch || (r.matchesPriceRange ? selectedPrice.some(range => r.matchesPriceRange(range)) : true);
 
       // Ensure at least one item matches all selected diet/cuisine/price constraints
-      const hasMatchingItem = availableItems.some(i => {
+      const hasMatchingItem = safeItems.some(i => {
         if (i.restaurant !== r.name) return false;
         const dietOk = selectedDiet.length === 0 || selectedDiet.map(x => String(x).toLowerCase()).includes(String(i.type).toLowerCase());
         const cuisineOk = selectedCuisine.length === 0 || selectedCuisine.map(x => String(x).toLowerCase()).includes(String(i.cuisine).toLowerCase());
@@ -144,7 +152,7 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
     else if (sortBy === 'price_asc') list = [...list].sort((a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0));
     else if (sortBy === 'price_desc') list = [...list].sort((a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0));
     return list;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy]);
+  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy, availableItems, availableRestaurants]);
 
   // Remove a single filter token
   const removeFilter = (group, value) => {
@@ -178,6 +186,25 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
   };
 
   // -------- Render --------
+  if (catalogLoading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color="#FF4D00" size="small" />
+        <Text style={{ marginTop: 12, fontWeight: '700', color: '#3C1E12' }}>
+          Loading recommendations...
+        </Text>
+      </View>
+    );
+  }
+
+  if (catalogError) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: '#B91C1C', fontWeight: '700' }}>{catalogError}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Recommendations</Text>

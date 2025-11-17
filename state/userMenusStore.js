@@ -1,5 +1,5 @@
 // User-managed menu items per restaurant (session-scoped)
-// Shape compatible with items in data/mockData
+// Shape compatible with items fetched from Appwrite
 
 let userMenus = {}; // { [restaurantId: string]: Array<Item> }
 
@@ -14,4 +14,3 @@ export function addUserItem(restaurant, item) {
   const arr = userMenus[id] || [];
   userMenus[id] = [...arr, copy];
 }
-
