@@ -53,6 +53,11 @@ const normalizeUpdateDoc = (doc) => {
   };
 };
 
+const sanitizeMentionToken = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
 const deriveRoleFromProfile = (profile) => {
   if (!profile) return 'user';
   const pool = [];
@@ -94,8 +99,8 @@ function Post({ post, restaurants }) {
     while ((m = regex.exec(t)) !== null) {
       if (m.index > lastIndex) parts.push(<Text key={`p-${lastIndex}`}>{t.slice(lastIndex, m.index)}</Text>);
       const name = m[1];
-      const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
-      const r = (restaurants || []).find(rr => norm(rr.name) === norm(name));
+    const norm = (s) => sanitizeMentionToken(s);
+    const r = (restaurants || []).find((rr) => norm(rr.name) === norm(name));
       parts.push(
         <Text
           key={`m-${m.index}`}
@@ -157,27 +162,24 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
   const [mentionQuery, setMentionQuery] = React.useState(null); // { start, query, hadAt }
 
   // Tag sources
-  const ownerTags = React.useMemo(
-    () => (restaurantDirectory || []).map(r => ({ id: r.id, name: r.name, type: 'owner' })),
+  const restaurantTags = React.useMemo(
+    () =>
+      (restaurantDirectory || []).map((r) => ({
+        id: r.id || r.$id,
+        name: r.name,
+        mention: sanitizeMentionToken(r.name),
+        location: r.location || r.address || '',
+        restaurant: r,
+      })),
     [restaurantDirectory]
   );
-  const userTags = React.useMemo(() => {
-    const users = new Set();
-    (restaurantDirectory || []).forEach(r => {
-      (r.reviews || []).forEach(rv => users.add(rv.user));
-    });
-    (feed || []).forEach(p => { if (p.role === 'user') users.add(p.author); });
-    return Array.from(users).map(u => ({ id: `user-${u}`, name: u, type: 'user' }));
-  }, [feed, restaurantDirectory]);
-  const allTags = React.useMemo(() => [...ownerTags, ...userTags], [ownerTags, userTags]);
 
   const visibleSuggestions = React.useMemo(() => {
     if (!mentionQuery || !mentionQuery.hadAt) return [];
-    const norm = (s) => String(s).toLowerCase().replace(/\s+/g, '');
-    const q = norm(mentionQuery.query || '');
-    if (q.length < 1) return allTags.slice(0, 8);
-    return allTags.filter(t => norm(t.name).includes(q)).slice(0, 8);
-  }, [mentionQuery, allTags]);
+    const q = sanitizeMentionToken(mentionQuery.query || '');
+    if (q.length < 1) return restaurantTags.slice(0, 8);
+    return restaurantTags.filter((t) => t.mention.includes(q)).slice(0, 8);
+  }, [mentionQuery, restaurantTags]);
 
   const updateMentionState = (nextText, sel) => {
     try {
@@ -213,7 +215,9 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
     const start = mentionQuery.start; // index of '@'
     const before = text.slice(0, start);
     const after = text.slice(cursor);
-    const username = String(tag.name).replace(/\s+/g, '');
+    const sanitized = sanitizeMentionToken(tag.name);
+    const fallback = String(tag.name || '').replace(/\s+/g, '');
+    const username = sanitized || fallback || 'place';
     const insert = `@${username} `;
     const next = `${before}${insert}${after}`;
     const nextCursor = (before + insert).length;
@@ -457,17 +461,21 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
                 <View style={styles.suggestBox}>
                   <FlatList
                     data={visibleSuggestions}
-                    keyExtractor={(s) => `${s.type}-${s.id}`}
+                    keyExtractor={(s) => `restaurant-${s.id}`}
                     renderItem={({ item: s }) => (
                       <Pressable onPress={() => insertMention(s)} style={styles.suggestItem}>
                         <Ionicons
-                          name={s.type === 'owner' ? 'storefront' : 'person'}
+                          name="restaurant"
                           size={16}
                           color={THEME_COLOR}
                           style={{ marginRight: 8 }}
                         />
-                        <Text style={{ flex: 1 }}>{s.name}</Text>
-                        {s.type === 'owner' && <Text style={styles.ownerPill}>Owner</Text>}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontWeight: '700', color: '#111827' }}>{s.name}</Text>
+                          {!!s.location && (
+                            <Text style={styles.suggestLocation}>{s.location}</Text>
+                          )}
+                        </View>
                       </Pressable>
                     )}
                     ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: '#f3f4f6' }} />}
@@ -632,7 +640,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
   },
-  ownerPill: { fontWeight: '700', fontSize: 12, color: THEME_COLOR },
+  suggestLocation: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   postError: {
     color: '#B91C1C',
     marginTop: 10,
