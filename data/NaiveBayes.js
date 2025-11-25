@@ -3,7 +3,6 @@
 
 import { db, DB_ID, COL, account, ensureSession } from '../appwrite';
 import { Query } from 'appwrite';
-import { getCatalog } from '../services/catalogService';
 
 const SMOOTHING = 1;
 
@@ -80,6 +79,106 @@ async function listAllDocuments(collectionId, queries = [], pageSize = 100) {
     cursor = docs[docs.length - 1].$id;
   }
   return out;
+}
+
+async function loadRestaurantsWithMenusAndItems() {
+  await ensureSession();
+  const [restaurants, menus, items] = await Promise.all([
+    listAllDocuments(COL.restaurants),
+    listAllDocuments(COL.menus),
+    listAllDocuments(COL.items),
+  ]);
+
+  const menuById = new Map();
+  const menusByRestaurant = new Map();
+  menus.forEach((menu) => {
+    const menuId = normalizeId(menu.$id ?? menu.id);
+    if (menuId) {
+      menuById.set(menuId, menu);
+    }
+    const rid = normalizeId(
+      menu.restaurantId ??
+        menu.restaurant_id ??
+        menu.restaurant?.$id ??
+        menu.restaurant?.id ??
+        null
+    );
+    if (!rid) return;
+    if (!menusByRestaurant.has(rid)) menusByRestaurant.set(rid, []);
+    menusByRestaurant.get(rid).push(menu);
+  });
+
+  const itemsByRestaurant = new Map();
+  const itemsById = new Map();
+  items.forEach((raw) => {
+    const id = normalizeId(raw.$id ?? raw.id);
+    if (!id) return;
+    const restaurantId = normalizeId(
+      raw.restaurantId ??
+        raw.restaurant_id ??
+        raw.restaurant?.$id ??
+        raw.restaurant?.id ??
+        null
+    );
+    const menuId = normalizeId(raw.menuId ?? raw.menu_id ?? null);
+    const normalized = {
+      id,
+      name: raw.name || 'Item',
+      type: raw.type || null,
+      cuisine: raw.cuisine || null,
+      tags: ensureArray(raw.tags),
+      priceRM:
+        typeof raw.priceRM === 'number'
+          ? raw.priceRM
+          : typeof raw.price === 'number'
+          ? raw.price
+          : null,
+      restaurantId,
+      menuId,
+    };
+    itemsById.set(id, normalized);
+    if (!restaurantId) return;
+    if (!itemsByRestaurant.has(restaurantId)) {
+      itemsByRestaurant.set(restaurantId, []);
+    }
+    itemsByRestaurant.get(restaurantId).push(normalized);
+  });
+
+  const richRestaurants = restaurants.map((restaurant) => {
+    const rid = normalizeId(restaurant.$id ?? restaurant.id);
+    const rMenus = menusByRestaurant.get(rid) || [];
+    const rItems = itemsByRestaurant.get(rid) || [];
+    const menusWithItems = rMenus.map((menu) => {
+      const menuId = normalizeId(menu.$id ?? menu.id);
+      return {
+        id: menuId,
+        name: menu.name || 'Menu',
+        items: rItems.filter((item) => item.menuId === menuId),
+      };
+    });
+
+    const orphanItems = rItems.filter(
+      (item) => !item.menuId || !menuById.has(item.menuId)
+    );
+    const menusMerged =
+      orphanItems.length > 0
+        ? [
+            ...menusWithItems,
+            { id: 'uncategorized', name: 'Uncategorized', items: orphanItems },
+          ]
+        : menusWithItems;
+
+    return {
+      id: rid,
+      name: restaurant.name || 'Restaurant',
+      cuisines: ensureArray(restaurant.cuisines),
+      ambience: ensureArray(restaurant.ambience),
+      menus: menusMerged,
+      _raw: restaurant,
+    };
+  });
+
+  return { restaurants: richRestaurants, itemsById };
 }
 
 async function loadUserPositiveRestaurantIds(userId, itemsById) {
@@ -293,7 +392,7 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
   const me = await account.get();
   const userId = me.$id;
 
-  const { restaurants, itemsById } = await getCatalog();
+  const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
   const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
 
   const model = buildModel({ restaurants, positiveIds });
@@ -316,7 +415,7 @@ export async function getNaiveBayesRecommendationsForCurrentUser(options = {}) {
  * Positive signals still come from Foodlists owned by that user.
  */
 export async function createNaiveBayesModelForUserId(userId) {
-  const { restaurants, itemsById } = await getCatalog();
+  const { restaurants, itemsById } = await loadRestaurantsWithMenusAndItems();
   const positiveIds = await loadUserPositiveRestaurantIds(userId, itemsById);
   return buildModel({ restaurants, positiveIds });
 }

@@ -1,4 +1,4 @@
-import { db, DB_ID, COL, ensureSession } from '../appwrite';
+﻿import { db, DB_ID, COL, ensureSession } from '../appwrite';
 import { Query } from 'appwrite';
 
 const ensureArray = (value) => {

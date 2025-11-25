@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { getCatalog } from '../services/catalogService';
 
 export function useCatalogData(options = {}) {

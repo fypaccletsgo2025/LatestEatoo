@@ -81,6 +81,15 @@ export default function AppNavigator() {
     }
 
     try {
+      try {
+        const existing = await account.get();
+        if (existing?.$id) {
+          await account.deleteSession('current');
+        }
+      } catch (sessionErr) {
+        // No active session (or unable to read/delete); continue to create a new one.
+      }
+
       await account.createEmailPasswordSession(trimmedEmail, password);
       const profile = await account.get();
       setCurrentUser(profile);
