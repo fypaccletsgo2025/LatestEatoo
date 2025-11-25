@@ -27,9 +27,10 @@ import { Ionicons } from '@expo/vector-icons';
 import BackButton from '../components/BackButton';
 
 // Appwrite client
-import { db, DB_ID, COL } from '../appwrite';
+import { db, DB_ID, COL, account, ensureSession } from '../appwrite';
 import { Query } from 'appwrite';
 import { searchUsers } from '../services/userDirectory';
+import { createNotification } from '../services/notificationsService';
 import {
   getFoodlists,
   updateFoodlist as updateFoodlistStore,
@@ -531,10 +532,32 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   const [collaboratorProfiles, setCollaboratorProfiles] = useState({});
   const [loadingCollaborators, setLoadingCollaborators] = useState(false);
   const [inviteBusyIds, setInviteBusyIds] = useState([]);
+  const [collaboratorActionBusyIds, setCollaboratorActionBusyIds] = useState([]);
   const collaboratorProfilesRef = useRef(collaboratorProfiles);
 
   const [toastMessage, setToastMessage] = useState('');
   const toastTimerRef = useRef(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const profile = await account.get();
+        if (!cancelled) {
+          setCurrentUserProfile(profile);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCurrentUserProfile(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -562,9 +585,10 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   );
 
   useEffect(() => {
-    collaboratorProfilesRef.current = collaboratorProfiles;
+  collaboratorProfilesRef.current = collaboratorProfiles;
   }, [collaboratorProfiles]);
 
+  const currentUserId = currentUserProfile?.$id || currentUserProfile?.id || null;
   const collaboratorIds = useMemo(
     () =>
       Array.isArray(currentList?.collaborators)
@@ -587,6 +611,12 @@ export default function FoodlistDetailScreen({ route, navigation }) {
       }),
     [collaboratorIds, collaboratorProfiles]
   );
+  const isOwner =
+    Boolean(currentUserId) && currentList?.ownerId === currentUserId;
+  const canLeave =
+    Boolean(currentUserId) &&
+    collaboratorIds.includes(currentUserId) &&
+    !isOwner;
 
   useEffect(() => {
     if (!collaboratorIds.length) {
@@ -659,20 +689,30 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         showToast('Already invited');
         return;
       }
+      const inviterName =
+        currentUserProfile?.name ||
+        currentUserProfile?.prefs?.displayName ||
+        currentUserProfile?.email ||
+        'Someone from Eatoo';
       setInviteBusyIds((prev) => [...prev, normalized.id]);
       try {
-        const nextCollaborators = [...collaboratorIds, normalized.id];
-        await db.updateDocument(DB_ID, COL.foodlists, listId, {
-          collaborators: nextCollaborators,
+        await createNotification({
+          userId: normalized.id,
+          type: 'invite',
+          payload: {
+            inviter: inviterName,
+            inviterId: currentUserId,
+            ownerId: currentList.ownerId || currentUserId,
+            list: {
+              id: listId,
+              name: currentList.name,
+              description: currentList.description || '',
+            },
+            status: 'pending',
+          },
+          read: false,
         });
-        const updated = { ...currentList, collaborators: nextCollaborators };
-        setCurrentList(updated);
-        setCollaboratorProfiles((prev) => ({
-          ...prev,
-          [normalized.id]: normalized,
-        }));
-        syncLocalFoodlists(updated);
-        showToast(`Invited ${formatProfileLabel(normalized)}`);
+        showToast(`Invitation sent to ${formatProfileLabel(normalized)}`);
       } catch (error) {
         Alert.alert(
           'Invite failed',
@@ -684,7 +724,154 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         );
       }
     },
-    [collaboratorIds, currentList, showToast, syncLocalFoodlists]
+    [collaboratorIds, currentList, currentUserId, currentUserProfile, showToast]
+  );
+
+  const removeCollaborator = useCallback(
+    async (targetId, { self = false } = {}) => {
+      const listId = currentList.$id;
+      if (!listId || !targetId) return;
+      if (self && isOwner) {
+        Alert.alert('Owner cannot leave', 'Please transfer ownership or delete the list.');
+        return;
+      }
+
+      setCollaboratorActionBusyIds((prev) => [...prev, targetId]);
+      try {
+        const removedProfile =
+          collaboratorProfiles[targetId] ||
+          (currentUserId === targetId ? currentUserProfile : null);
+        const removedName =
+          removedProfile?.displayName ||
+          removedProfile?.prefs?.displayName ||
+          removedProfile?.name ||
+          removedProfile?.username ||
+          removedProfile?.email ||
+          targetId;
+        const listDetails = {
+          id: listId,
+          name: currentList.name || 'Foodlist',
+          description: currentList.description || '',
+        };
+        const actorName =
+          currentUserProfile?.name ||
+          currentUserProfile?.prefs?.displayName ||
+          currentUserProfile?.email ||
+          'Someone';
+
+        const nextCollaborators = collaboratorIds.filter((id) => id !== targetId);
+        await db.updateDocument(DB_ID, COL.foodlists, listId, {
+          collaborators: nextCollaborators,
+        });
+        const updated = { ...currentList, collaborators: nextCollaborators };
+        if (!self) {
+          setCurrentList(updated);
+        }
+        setCollaboratorProfiles((prev) => {
+          const next = { ...prev };
+          delete next[targetId];
+          return next;
+        });
+        if (!self) {
+          syncLocalFoodlists(updated);
+        }
+
+        if (self) {
+          const recipients = new Set(
+            collaboratorIds.filter((id) => id !== targetId)
+          );
+          const ownerId = currentList.ownerId;
+          if (ownerId && ownerId !== targetId) {
+            recipients.add(ownerId);
+          }
+          if (recipients.size) {
+            try {
+              await Promise.all(
+                Array.from(recipients).map((recipientId) =>
+                  createNotification({
+                    userId: recipientId,
+                    type: 'member_update',
+                    payload: {
+                      list: listDetails,
+                      memberId: targetId,
+                      memberName: removedName,
+                      action: 'left',
+                      actorId: currentUserId,
+                      actorName,
+                    },
+                    read: false,
+                  })
+                )
+              );
+            } catch (notifyErr) {
+              console.warn(
+                'Failed to notify members about leave',
+                notifyErr?.message || notifyErr
+              );
+            }
+          }
+        } else {
+          try {
+            await createNotification({
+              userId: targetId,
+              type: 'member_update',
+              payload: {
+                list: listDetails,
+                memberId: targetId,
+                memberName: removedName,
+                action: 'kicked',
+                actorId: currentUserId,
+                actorName,
+              },
+              read: false,
+            });
+          } catch (notifyErr) {
+            console.warn(
+              'Failed to notify removed collaborator',
+              notifyErr?.message || notifyErr
+            );
+          }
+        }
+
+        if (self) {
+          setInviteOpen(false);
+          setContributorsOpen(false);
+          setAddingItems(false);
+          removeLocalFoodlist(listId);
+          requestAnimationFrame(() => {
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('FoodlistMain');
+            }
+          });
+          showToast('You left this foodlist');
+        } else {
+          showToast('Collaborator removed');
+        }
+      } catch (error) {
+        Alert.alert(
+          'Unable to update collaborators',
+          error?.message || 'Please try again later.'
+        );
+      } finally {
+        setCollaboratorActionBusyIds((prev) =>
+          prev.filter((id) => id !== targetId)
+        );
+      }
+    },
+    [
+      collaboratorIds,
+      collaboratorProfiles,
+      currentList,
+      currentUserId,
+      currentUserProfile,
+      isOwner,
+      navigation,
+      removeLocalFoodlist,
+      showToast,
+      syncLocalFoodlists,
+    ]
   );
 
   const removeLocalFoodlist = useCallback(
@@ -904,6 +1091,10 @@ export default function FoodlistDetailScreen({ route, navigation }) {
   };
 
   const deleteList = async () => {
+    if (!isOwner) {
+      Alert.alert('Only owners can delete this foodlist.');
+      return;
+    }
     Alert.alert('Delete foodlist', 'This action cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -926,6 +1117,38 @@ export default function FoodlistDetailScreen({ route, navigation }) {
         },
       },
     ]);
+  };
+
+  const confirmRemoveCollaborator = (member) => {
+    if (!isOwner || !member?.id) return;
+    Alert.alert(
+      'Remove collaborator',
+      `Remove ${member.displayName || member.username || member.id} from this foodlist?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => removeCollaborator(member.id),
+        },
+      ]
+    );
+  };
+
+  const confirmLeaveFoodlist = () => {
+    if (!currentUserId) return;
+    Alert.alert(
+      'Leave this foodlist?',
+      'You will lose access until invited again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () => removeCollaborator(currentUserId, { self: true }),
+        },
+      ]
+    );
   };
 
   // ---- Header ----
@@ -1019,6 +1242,17 @@ export default function FoodlistDetailScreen({ route, navigation }) {
               <Text style={styles.heroActionSecondaryText}>Share invite</Text>
             </TouchableOpacity>
           </View>
+          {canLeave && (
+            <TouchableOpacity
+              style={styles.leaveBanner}
+              onPress={confirmLeaveFoodlist}
+              accessibilityRole="button"
+              accessibilityLabel="Leave this foodlist"
+            >
+              <Ionicons name="exit-outline" size={16} color={BRAND.danger} />
+              <Text style={styles.leaveBannerText}>Leave this foodlist</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -1116,6 +1350,37 @@ export default function FoodlistDetailScreen({ route, navigation }) {
                     <Text style={styles.usernameText}>@{item.username}</Text>
                   )}
                 </View>
+                {isOwner && item.id !== currentUserId && (
+                  <TouchableOpacity
+                    onPress={() => confirmRemoveCollaborator(item)}
+                    style={styles.collaboratorActionBtn}
+                    disabled={collaboratorActionBusyIds.includes(item.id)}
+                  >
+                    <Text style={styles.collaboratorActionText}>
+                      {collaboratorActionBusyIds.includes(item.id)
+                        ? 'Removing...'
+                        : 'Kick'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {!isOwner && item.id === currentUserId && (
+                  <TouchableOpacity
+                    onPress={confirmLeaveFoodlist}
+                    style={[
+                      styles.collaboratorActionBtn,
+                      { borderColor: BRAND.danger },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.collaboratorActionText,
+                        { color: BRAND.danger },
+                      ]}
+                    >
+                      Leave
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
             ListEmptyComponent={
@@ -1462,6 +1727,19 @@ const styles = StyleSheet.create({
     color: BRAND.primary,
     fontWeight: '700',
   },
+  leaveBanner: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BRAND.danger,
+    backgroundColor: '#fff1f2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
+  leaveBannerText: { color: BRAND.danger, fontWeight: '700', marginLeft: 8 },
   card: {
     backgroundColor: BRAND.surface,
     borderRadius: 18,
@@ -1633,6 +1911,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BRAND.line,
   },
+  collaboratorActionBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BRAND.primary,
+    marginLeft: 12,
+  },
+  collaboratorActionText: { color: BRAND.primary, fontWeight: '700' },
   avatar: {
     width: 32,
     height: 32,

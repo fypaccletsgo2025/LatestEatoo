@@ -15,6 +15,7 @@ import BackButton from '../components/BackButton';
 import { getFoodlists, updateFoodlists } from '../state/foodlistsStore';
 import { client, db, DB_ID, COL, account, ensureSession } from '../appwrite';
 import { formatTimeAgo } from '../utils/timeUtils';
+import { createNotification } from '../services/notificationsService';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -37,17 +38,56 @@ const FINAL_STATUSES = new Set(['approved', 'rejected']);
 // Helper to generate notification title
 const generateTitle = (doc) => {
   if (doc.type === 'invite') return 'Foodlist Invite';
+  if (doc.type === 'invite_response') return 'Invite Response';
+  if (doc.type === 'member_update') return 'Foodlist Update';
   if (doc.type === 'user_submission') return 'Your Recommendation Status';
   if (doc.type === 'restaurant_request') return 'Restaurant Request Status';
   return 'Notification';
 };
 
 // Helper to generate notification body
+const parseNotificationPayload = (payload) => {
+  if (!payload) return {};
+  if (typeof payload === 'object') return payload;
+  if (typeof payload === 'string') {
+    try {
+      const parsed = JSON.parse(payload);
+      return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+};
+
 const generateBody = (doc) => {
-  const payload = doc.payload || {};
-  if (doc.type === 'invite') return `${payload.inviter} wants to share a foodlist with you: '${payload.list?.name}'`;
-  if (doc.type === 'user_submission') return `Your recommendation for '${payload.restaurantName}' was ${payload.status}.`;
-  if (doc.type === 'restaurant_request') return `Your restaurant request '${payload.restaurantName}' was ${payload.status}.`;
+  const payload = parseNotificationPayload(doc.payload);
+  if (doc.type === 'invite') {
+    const listName = payload.list?.name || 'this foodlist';
+    const inviter = payload.inviter || 'Someone';
+    return `${inviter} wants to share a foodlist with you: '${listName}'`;
+  }
+  if (doc.type === 'invite_response') {
+    const listName = payload.list?.name || 'your foodlist';
+    const responder = payload.responderName || 'Someone';
+    const status = payload.status || 'responded';
+    return `${responder} ${status} your invite for '${listName}'.`;
+  }
+  if (doc.type === 'member_update') {
+    const listName = payload.list?.name || 'the foodlist';
+    const memberName = payload.memberName || 'A member';
+    const wasKicked = payload.action === 'kicked';
+    const actor =
+      payload.actorName && wasKicked ? ` by ${payload.actorName}` : '';
+    const verb = wasKicked ? 'was removed from a foodlist' : 'left a foodlist';
+    return `${memberName} ${verb} '${listName}'${actor}.`;
+  }
+  if (doc.type === 'user_submission') {
+    return `Your recommendation for '${payload.restaurantName}' was ${payload.status}.`;
+  }
+  if (doc.type === 'restaurant_request') {
+    return `Your restaurant request '${payload.restaurantName}' was ${payload.status}.`;
+  }
   return '';
 };
 
@@ -84,16 +124,22 @@ const buildNotificationEntry = ({
   };
 };
 
-const mapAppwriteNotification = (doc) =>
-  buildNotificationEntry({
+const mapAppwriteNotification = (doc) => {
+  const payload = parseNotificationPayload(doc?.payload);
+  const status = String(payload?.status || '').toLowerCase();
+  if (doc.type === 'invite' && status && status !== 'pending') {
+    return null;
+  }
+  return buildNotificationEntry({
     id: `${NOTIF_SOURCES.APPWRITE}:${doc.$id}`,
     documentId: doc.$id,
     source: NOTIF_SOURCES.APPWRITE,
     type: doc.type || 'system',
-    payload: doc.payload || {},
+    payload,
     read: Boolean(doc.read),
     timestamp: doc.createdAt || doc.$createdAt || doc.$updatedAt,
   });
+};
 
 const mapSubmissionNotification = (doc) => {
   const status = String(doc.status || '').toLowerCase();
@@ -183,34 +229,47 @@ export default function NotificationsScreen() {
 
   // Fetch initial notifications
   useEffect(() => {
-    if (!userReady) return;
+    if (!userReady || !currentUserId) return;
     let cancelled = false;
     async function loadNotifications() {
       try {
         setLoading(true);
         setLoadError('');
         await ensureSession();
+        const notificationQueries = [Query.orderDesc('$createdAt'), Query.limit(50)];
         const [docs, submissions, requests] = await Promise.all([
-          db.listDocuments(DB_ID, COLLECTION_ID, [Query.orderDesc('$createdAt'), Query.limit(50)]),
+          db.listDocuments(DB_ID, COLLECTION_ID, notificationQueries),
           db.listDocuments(DB_ID, COL.userSubmissions, [Query.orderDesc('$updatedAt'), Query.limit(50)]),
           db.listDocuments(DB_ID, COL.restaurantRequests, [Query.orderDesc('$updatedAt'), Query.limit(50)]),
         ]);
 
         if (cancelled) return;
 
-        const inviteEntries = docs.documents.map(mapAppwriteNotification).filter(Boolean);
-        const submissionEntries = currentUserId
-          ? submissions.documents
-              .filter((doc) => doc.$createdBy === currentUserId)
-              .map(mapSubmissionNotification)
-              .filter(Boolean)
-          : [];
-        const requestEntries = currentUserId
-          ? requests.documents
-              .filter((doc) => doc.$createdBy === currentUserId)
-              .map(mapRestaurantRequestNotification)
-              .filter(Boolean)
-          : [];
+        const unreadDocs = docs.documents.filter((doc) => !doc.read);
+        if (unreadDocs.length) {
+          try {
+            await Promise.all(
+              unreadDocs.map((doc) =>
+                db.updateDocument(DB_ID, COLLECTION_ID, doc.$id, { read: true })
+              )
+            );
+          } catch (markErr) {
+            console.warn('Failed to auto-mark notifications as read', markErr?.message || markErr);
+          }
+        }
+
+        const inviteEntries = docs.documents
+          .filter((doc) => !doc.userId || doc.userId === currentUserId)
+          .map(mapAppwriteNotification)
+          .filter(Boolean);
+        const submissionEntries = submissions.documents
+          .filter((doc) => doc.$createdBy === currentUserId)
+          .map(mapSubmissionNotification)
+          .filter(Boolean);
+        const requestEntries = requests.documents
+          .filter((doc) => doc.$createdBy === currentUserId)
+          .map(mapRestaurantRequestNotification)
+          .filter(Boolean);
         setNotifications(sortNotificationsDesc([...inviteEntries, ...submissionEntries, ...requestEntries]));
       } catch (err) {
         console.error('Failed to fetch notifications:', err);
@@ -231,19 +290,25 @@ export default function NotificationsScreen() {
 
   // Real-time subscription
   useEffect(() => {
-    if (!userReady) return () => {};
+    if (!userReady || !currentUserId) return () => {};
     const unsubscribeNotifications = client.subscribe(
       `databases.${DB_ID}.collections.${COLLECTION_ID}.documents`,
       (response) => {
         const doc = response.payload;
         if (!doc?.$id) return;
+        if (doc.userId && doc.userId !== currentUserId) return;
         const events = response.events || [];
         const entryId = `${NOTIF_SOURCES.APPWRITE}:${doc.$id}`;
         if (events.some((evt) => evt.endsWith('.delete'))) {
           removeNotificationById(entryId);
           return;
         }
-        mergeNotification(mapAppwriteNotification(doc));
+        const mapped = mapAppwriteNotification(doc);
+        if (!mapped) {
+          removeNotificationById(entryId);
+          return;
+        }
+        mergeNotification(mapped);
       }
     );
 
@@ -330,23 +395,63 @@ export default function NotificationsScreen() {
   // Accept invite
   const acceptInvite = async (note) => {
     if (!note || note.source !== NOTIF_SOURCES.APPWRITE) return;
-    const list = note.payload?.list;
-    const inviter = note.payload?.inviter;
-    if (!list) return;
+    const payload = note.payload || {};
+    const listId = payload.list?.id;
+    if (!listId || !currentUserId) return;
 
     try {
+      await ensureSession();
+      const listDoc = await db.getDocument(DB_ID, COL.foodlists, listId);
+      const collaborators = Array.isArray(listDoc.collaborators)
+        ? listDoc.collaborators.filter(Boolean)
+        : [];
+      if (!collaborators.includes(currentUserId)) {
+        collaborators.push(currentUserId);
+        await db.updateDocument(DB_ID, COL.foodlists, listId, {
+          collaborators,
+        });
+      }
+      updateFoodlists((prev) =>
+        prev.some((item) => (item.$id || item.id) === listId)
+          ? prev.map((item) =>
+              (item.$id || item.id) === listId
+                ? { ...item, collaborators }
+                : item
+            )
+          : [{ ...listDoc, collaborators }, ...prev]
+      );
+
       await db.updateDocument(DB_ID, COLLECTION_ID, note.documentId, {
-        payload: { ...note.payload, status: 'accepted' },
+        payload: JSON.stringify({ ...payload, status: 'accepted' }),
+        read: true,
       });
-
-      const current = getFoodlists();
-      const already = current.some((l) => l.name === list.name);
-      const collaborators = inviter && !list.collaborators?.includes(inviter)
-        ? [...(list.collaborators || []), inviter]
-        : list.collaborators;
-
-      if (!already) updateFoodlists((prev) => [...prev, { ...list, id: String(Date.now()), collaborators }]);
       setNotifications((prev) => prev.filter((n) => n.id !== note.id));
+      const ownerTargetId = payload.ownerId || payload.inviterId || null;
+      if (ownerTargetId) {
+        const responderName =
+          currentUser?.name ||
+          currentUser?.prefs?.displayName ||
+          currentUser?.email ||
+          'Someone';
+        try {
+          await createNotification({
+            userId: ownerTargetId,
+            type: 'invite_response',
+            payload: {
+              list: payload.list,
+              status: 'accepted',
+              responderId: currentUserId,
+              responderName,
+            },
+            read: false,
+          });
+        } catch (notifyErr) {
+          console.warn(
+            'Failed to notify owner about acceptance',
+            notifyErr?.message || notifyErr
+          );
+        }
+      }
     } catch (err) {
       console.error('Failed to accept invite:', err);
     }
@@ -355,30 +460,58 @@ export default function NotificationsScreen() {
   // Decline invite
   const declineInvite = async (note) => {
     if (!note || note.source !== NOTIF_SOURCES.APPWRITE) return;
+    const payload = note.payload || {};
     try {
       await db.updateDocument(DB_ID, COLLECTION_ID, note.documentId, {
-        payload: { ...note.payload, status: 'declined' },
+        payload: JSON.stringify({ ...payload, status: 'declined' }),
+        read: true,
       });
       setNotifications((prev) => prev.filter((n) => n.id !== note.id));
+      const ownerTargetId = payload.ownerId || payload.inviterId || null;
+      if (ownerTargetId) {
+        const responderName =
+          currentUser?.name ||
+          currentUser?.prefs?.displayName ||
+          currentUser?.email ||
+          'Someone';
+        try {
+          await createNotification({
+            userId: ownerTargetId,
+            type: 'invite_response',
+            payload: {
+              list: payload.list,
+              status: 'declined',
+              responderId: currentUserId,
+              responderName,
+            },
+            read: false,
+          });
+        } catch (notifyErr) {
+          console.warn(
+            'Failed to notify owner about decline',
+            notifyErr?.message || notifyErr
+          );
+        }
+      }
     } catch (err) {
       console.error('Failed to decline invite:', err);
     }
   };
 
   const clearableCount = useMemo(
-    () => notifications.filter((note) => note.source === NOTIF_SOURCES.APPWRITE).length,
+    () => notifications.length,
     [notifications]
   );
 
   // Clear invite notifications (mark read remotely)
   const clearAll = async () => {
-    const inviteNotes = notifications.filter((note) => note.source === NOTIF_SOURCES.APPWRITE);
-    if (!inviteNotes.length) return;
-    setNotifications((prev) => prev.filter((note) => note.source !== NOTIF_SOURCES.APPWRITE));
+    if (!notifications.length) return;
+    const appwriteNotes = notifications.filter((note) => note.source === NOTIF_SOURCES.APPWRITE);
+    setNotifications([]);
     try {
       await Promise.all(
-        inviteNotes.map((note) =>
-          db.updateDocument(DB_ID, COLLECTION_ID, note.documentId, { read: true })
+        appwriteNotes.map((note) =>
+          db.deleteDocument(DB_ID, COLLECTION_ID, note.documentId)
         )
       );
     } catch (err) {

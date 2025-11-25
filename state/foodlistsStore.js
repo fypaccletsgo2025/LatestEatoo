@@ -120,13 +120,35 @@ export async function loadFoodlists({ force = false, ownerId } = {}) {
       }
     }
 
-    const queries = [Query.limit(200), Query.orderDesc('$updatedAt')];
+    let docs = [];
     if (targetOwnerId) {
-      queries.push(Query.equal('ownerId', targetOwnerId));
+      const baseQueries = [Query.orderDesc('$updatedAt'), Query.limit(150)];
+      const ownerQueries = [...baseQueries, Query.equal('ownerId', targetOwnerId)];
+      const collaboratorQueries = [...baseQueries, Query.equal('collaborators', targetOwnerId)];
+      const [ownedRes, collaboratorRes] = await Promise.all([
+        db.listDocuments(DB_ID, COL.foodlists, ownerQueries),
+        db.listDocuments(DB_ID, COL.foodlists, collaboratorQueries),
+      ]);
+      const deduped = new Map();
+      const mergeDocs = (res) => {
+        const entries = Array.isArray(res?.documents) ? res.documents : [];
+        entries.forEach((doc) => {
+          if (doc?.$id && !deduped.has(doc.$id)) {
+            deduped.set(doc.$id, doc);
+          }
+        });
+      };
+      mergeDocs(ownedRes);
+      mergeDocs(collaboratorRes);
+      docs = Array.from(deduped.values());
+    } else {
+      const res = await db.listDocuments(DB_ID, COL.foodlists, [
+        Query.orderDesc('$updatedAt'),
+        Query.limit(200),
+      ]);
+      docs = Array.isArray(res?.documents) ? res.documents : [];
     }
 
-    const res = await db.listDocuments(DB_ID, COL.foodlists, queries);
-    const docs = Array.isArray(res?.documents) ? res.documents : [];
     setLists(docs);
     notifyListeners();
     return getFoodlists();
