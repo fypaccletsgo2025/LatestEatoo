@@ -1,5 +1,5 @@
 // screens/PreferenceMainPage.js
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
 import { useCatalogData } from '../hooks/useCatalogData';
 import PreferenceQuestionnaireSheet from '../components/PreferenceQuestionnaireSheet';
@@ -10,6 +10,28 @@ import {
   updatePreferenceSelections,
   usePreferenceSelections,
 } from '../state/preferenceSelectionsStore';
+
+const normalizeValue = (v) => String(v ?? '').trim().toLowerCase();
+const normalizeNoSpaces = (v) => normalizeValue(v).replace(/ /g, '');
+
+const parsePriceValue = (value) => {
+  const numeric = Number(String(value).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const matchesPriceRange = (priceValue, range) => {
+  if (priceValue == null) return false;
+  const text = String(range || '').toUpperCase();
+  if (text === 'RM0-RM10') return priceValue <= 10;
+  if (text === 'RM11-RM20') return priceValue >= 11 && priceValue <= 20;
+  if (text === 'RM21-RM30') return priceValue >= 21 && priceValue <= 30;
+  if (text === 'RM31+') return priceValue >= 31;
+  const nums = String(range || '').match(/(\d+(\.\d+)?)/g)?.map((n) => Number(n)) || [];
+  if (!nums.length) return true;
+  const min = nums[0];
+  const max = nums[1] ?? Number.POSITIVE_INFINITY;
+  return priceValue >= min && priceValue <= max;
+};
 
 export default function PreferenceMainPage({ route, navigation, externalSelections }) {
   const {
@@ -25,6 +47,31 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
   const selectedPrice = selections.selectedPrice;
   const safeItems = Array.isArray(availableItems) ? availableItems : [];
   const safeRestaurants = Array.isArray(availableRestaurants) ? availableRestaurants : [];
+
+  const restaurantIndex = useMemo(() => {
+    const byId = new Map();
+    const byName = new Map();
+    safeRestaurants.forEach((r) => {
+      const id = normalizeValue(r.id || r.$id);
+      const name = normalizeValue(r.name);
+      if (id) byId.set(id, r);
+      if (name) byName.set(name, r);
+    });
+    return { byId, byName };
+  }, [safeRestaurants]);
+
+  const resolveRestaurantForItem = useCallback(
+    (item) => {
+      const rid = normalizeValue(
+        item.restaurantId || item.restaurant_id || item.restaurant?.id || item.restaurant?.$id,
+      );
+      if (rid && restaurantIndex.byId.has(rid)) return restaurantIndex.byId.get(rid);
+      const name = normalizeValue(item.restaurant || item.restaurantName);
+      if (name && restaurantIndex.byName.has(name)) return restaurantIndex.byName.get(name);
+      return null;
+    },
+    [restaurantIndex],
+  );
 
   const incomingParams = route?.params;
 
@@ -42,117 +89,145 @@ export default function PreferenceMainPage({ route, navigation, externalSelectio
 
   // -------- Filtering + sorting --------
   const filteredItems = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const items = safeItems.filter(item => {
+    const term = normalizeValue(search);
+
+    const items = safeItems.filter((item) => {
       const dietMatch =
         selectedDiet.length === 0 ||
-        selectedDiet.some(d => d.toLowerCase() === String(item.type).toLowerCase());
+        selectedDiet.some((d) => normalizeValue(d) === normalizeValue(item.type));
 
       const cuisineMatch =
         selectedCuisine.length === 0 ||
-        selectedCuisine.some(c => c.toLowerCase() === String(item.cuisine).toLowerCase());
+        selectedCuisine.some((c) => normalizeValue(c) === normalizeValue(item.cuisine));
 
-      // Match mood/ambience via the restaurant, not item
-      const r = safeRestaurants.find(rr => rr.name === item.restaurant);
-      const ambience = (r?.ambience || []).map(x => String(x).toLowerCase().replace(/ /g, ''));
-      const moodMatch = selectedMood.length === 0 || selectedMood.every(m => ambience.includes(String(m).toLowerCase().replace(/ /g, '')));
+      const resolvedRestaurant = resolveRestaurantForItem(item);
+      const ambience = (resolvedRestaurant?.ambience || []).map((x) => normalizeNoSpaces(x));
+      const moodMatch =
+        selectedMood.length === 0 ||
+        selectedMood.every((m) => ambience.includes(normalizeNoSpaces(m)));
 
+      const priceValue = parsePriceValue(item.price);
       const priceMatch =
         selectedPrice.length === 0 ||
-        selectedPrice.some(range => {
-          const price = parseInt(String(item.price).replace('RM', ''));
-          switch (range) {
-            case 'RM0-RM10': return price <= 10;
-            case 'RM11-RM20': return price >= 11 && price <= 20;
-            case 'RM21-RM30': return price >= 21 && price <= 30;
-            case 'RM31+': return price >= 31;
-            default: return true;
-          }
-        });
+        selectedPrice.some((range) => matchesPriceRange(priceValue, range));
 
       const searchMatch =
         term.length === 0 ||
-        item.name.toLowerCase().includes(term) ||
-        String(item.restaurant).toLowerCase().includes(term);
+        normalizeValue(item.name).includes(term) ||
+        normalizeValue(item.restaurant).includes(term);
 
       return dietMatch && cuisineMatch && moodMatch && priceMatch && searchMatch;
     });
 
-    // Sorting
     const sorted = [...items];
     if (sortBy === 'rating_desc') {
       sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     } else if (sortBy === 'price_asc') {
-      sorted.sort((a, b) => parseInt(String(a.price).replace('RM', '')) - parseInt(String(b.price).replace('RM', '')));
+      sorted.sort(
+        (a, b) => (parsePriceValue(a.price) ?? Number.POSITIVE_INFINITY) - (parsePriceValue(b.price) ?? Number.POSITIVE_INFINITY),
+      );
     } else if (sortBy === 'price_desc') {
-      sorted.sort((a, b) => parseInt(String(b.price).replace('RM', '')) - parseInt(String(a.price).replace('RM', '')));
+      sorted.sort(
+        (a, b) => (parsePriceValue(b.price) ?? 0) - (parsePriceValue(a.price) ?? 0),
+      );
     }
     return sorted;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy, availableItems, availableRestaurants]);
+  }, [
+    selectedDiet,
+    selectedCuisine,
+    selectedMood,
+    selectedPrice,
+    search,
+    sortBy,
+    safeItems,
+    resolveRestaurantForItem,
+  ]);
 
   const filteredRestaurants = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    let list = safeRestaurants.filter(r => {
+    const term = normalizeValue(search);
+    let list = safeRestaurants.filter((r) => {
+      const rId = normalizeValue(r.id || r.$id);
       const cuisineMatch =
         selectedCuisine.length === 0 ||
-        selectedCuisine.some(c => {
-          const cl = String(c).toLowerCase();
-          // Only match if the restaurant itself is of the selected cuisine
-          return cl === String(r.cuisine).toLowerCase() || r.cuisines.map(cc => String(cc).toLowerCase()).includes(cl);
+        selectedCuisine.some((c) => {
+          const cl = normalizeValue(c);
+          return (
+            cl === normalizeValue(r.cuisine) ||
+            (Array.isArray(r.cuisines) && r.cuisines.map(normalizeValue).includes(cl))
+          );
         });
 
       const moodMatch =
         selectedMood.length === 0 ||
-        selectedMood.every(m => r.ambience.map(mm => String(mm).toLowerCase().replace(/ /g, '')).includes(String(m).toLowerCase().replace(/ /g, '')));
+        selectedMood.every((m) =>
+          (r.ambience || []).map(normalizeNoSpaces).includes(normalizeNoSpaces(m)),
+        );
 
-      // If diet is specified, make sure the restaurant has at least one item of those types
       const dietMatch =
         selectedDiet.length === 0 ||
-        safeItems.some(i => i.restaurant === r.name && selectedDiet.map(d => String(d).toLowerCase()).includes(String(i.type).toLowerCase()));
+        safeItems.some(
+          (i) =>
+            normalizeValue(resolveRestaurantForItem(i)?.id || resolveRestaurantForItem(i)?.$id) === rId &&
+            selectedDiet.map(normalizeValue).includes(normalizeValue(i.type)),
+        );
 
-      // Price: prefer existence of at least one item in price ranges; fallback to average
-      const itemPriceMatch = selectedPrice.length === 0 || safeItems.some(i => {
-        if (i.restaurant !== r.name) return false;
-        const p = parseInt(String(i.price).replace('RM', ''));
-        return selectedPrice.some(range => (
-          (range === 'RM0-RM10' && p <= 10) ||
-          (range === 'RM11-RM20' && p >= 11 && p <= 20) ||
-          (range === 'RM21-RM30' && p >= 21 && p <= 30) ||
-          (range === 'RM31+' && p >= 31)
-        ));
-      });
-      const priceMatch = selectedPrice.length === 0 ? true : itemPriceMatch || (r.matchesPriceRange ? selectedPrice.some(range => r.matchesPriceRange(range)) : true);
+      const itemPriceMatch =
+        selectedPrice.length === 0 ||
+        safeItems.some((i) => {
+          const itemRest = resolveRestaurantForItem(i);
+          if (!itemRest || normalizeValue(itemRest.id || itemRest.$id) !== rId) return false;
+          const p = parsePriceValue(i.price);
+          return selectedPrice.some((range) => matchesPriceRange(p, range));
+        });
+      const priceMatch =
+        selectedPrice.length === 0
+          ? true
+          : itemPriceMatch ||
+            (typeof r.averagePriceValue === 'number'
+              ? selectedPrice.some((range) => matchesPriceRange(r.averagePriceValue, range))
+              : true);
 
-      // Ensure at least one item matches all selected diet/cuisine/price constraints
-      const hasMatchingItem = safeItems.some(i => {
-        if (i.restaurant !== r.name) return false;
-        const dietOk = selectedDiet.length === 0 || selectedDiet.map(x => String(x).toLowerCase()).includes(String(i.type).toLowerCase());
-        const cuisineOk = selectedCuisine.length === 0 || selectedCuisine.map(x => String(x).toLowerCase()).includes(String(i.cuisine).toLowerCase());
-        const p = parseInt(String(i.price).replace('RM', ''));
-        const priceOk = selectedPrice.length === 0 || selectedPrice.some(range => (
-          (range === 'RM0-RM10' && p <= 10) ||
-          (range === 'RM11-RM20' && p >= 11 && p <= 20) ||
-          (range === 'RM21-RM30' && p >= 21 && p <= 30) ||
-          (range === 'RM31+' && p >= 31)
-        ));
+      const hasMatchingItem = safeItems.some((i) => {
+        const itemRest = resolveRestaurantForItem(i);
+        if (!itemRest || normalizeValue(itemRest.id || itemRest.$id) !== rId) return false;
+        const dietOk =
+          selectedDiet.length === 0 ||
+          selectedDiet.map(normalizeValue).includes(normalizeValue(i.type));
+        const cuisineOk =
+          selectedCuisine.length === 0 ||
+          selectedCuisine.map(normalizeValue).includes(normalizeValue(i.cuisine));
+        const priceOk =
+          selectedPrice.length === 0 ||
+          selectedPrice.some((range) => matchesPriceRange(parsePriceValue(i.price), range));
         return dietOk && cuisineOk && priceOk;
       });
 
       const searchMatch =
         term.length === 0 ||
-        r.name.toLowerCase().includes(term) ||
-        String(r.location).toLowerCase().includes(term) ||
-        String(r.theme).toLowerCase().includes(term);
+        normalizeValue(r.name).includes(term) ||
+        normalizeValue(r.location).includes(term) ||
+        normalizeValue(r.theme).includes(term);
 
       return cuisineMatch && moodMatch && dietMatch && priceMatch && hasMatchingItem && searchMatch;
     });
 
-    // Sort restaurants similar to items
     if (sortBy === 'rating_desc') list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === 'price_asc') list = [...list].sort((a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0));
-    else if (sortBy === 'price_desc') list = [...list].sort((a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0));
+    else if (sortBy === 'price_asc')
+      list = [...list].sort((a, b) => (a.averagePriceValue ?? 0) - (b.averagePriceValue ?? 0));
+    else if (sortBy === 'price_desc')
+      list = [...list].sort((a, b) => (b.averagePriceValue ?? 0) - (a.averagePriceValue ?? 0));
     return list;
-  }, [selectedDiet, selectedCuisine, selectedMood, selectedPrice, search, sortBy, availableItems, availableRestaurants]);
+  }, [
+    selectedDiet,
+    selectedCuisine,
+    selectedMood,
+    selectedPrice,
+    search,
+    sortBy,
+    safeItems,
+    safeRestaurants,
+    resolveRestaurantForItem,
+  ]);
 
   // Remove a single filter token
   const removeFilter = (group, value) => {

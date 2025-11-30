@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { db, DB_ID, COL, ensureSession } from '../appwrite';
 import { Query } from 'appwrite';
 
-const presetTags = ['spicy', 'sweet', 'salty', 'aromatic', 'hearty', 'refreshing', 'creamy'];
+const presetTags = ['spicy', 'sweet', 'salty', 'savory', 'hearty', 'refreshing', 'creamy'];
 
 const BRAND = {
   primary: '#FF4D00',
@@ -399,7 +399,7 @@ function sampleImageForTag(tag) {
     spicy: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYv-uoxN6gm0rG7TtlhTKXREwz7id1Cm909A&s',
     sweet: 'https://images.unsplash.com/photo-1499636136210-6f4ee915583e?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
     salty: 'https://images.unsplash.com/photo-1515003197210-e0cd71810b5f?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
-    aromatic: 'https://images.unsplash.com/photo-1432139555190-58524dae6a55?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
+    savory: 'https://www.theworktop.com/wp-content/uploads/2021/10/Savory-French-Toast-16x9-1.jpg',
     hearty: 'https://images.unsplash.com/photo-1543353071-10c8ba85a904?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
     refreshing: 'https://m.media-amazon.com/images/S/assets.wholefoodsmarket.com//content/fb/a0/49e82cfa4075ad23b154016edce8/microsoftteams-image-11._TTW_._CR2,0,4989,2807_._SR1500,844_._QL100_.png',
     creamy: 'https://www.allrecipes.com/thmb/9aWCdbfttLcsW2dFQWwVQBGJM3E=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/AR-236973-CreamyAlfredoSauce-0238-4x3-1-01e7091f47ae452d991abe32cbed5921.jpg',

@@ -6,12 +6,15 @@ import { formatTimeAgo } from '../utils/timeUtils';
 const COLLECTION_ID = 'notifications';
 
 function generateTitle(doc) {
+  const status = String(doc?.payload?.status || '').toLowerCase();
   switch (doc.type) {
     case 'invite':
       return 'Foodlist Invite';
     case 'user_submission':
+      if (status === 'approved') return 'The restaurant you submitted is now on Eatoo';
       return 'Your Recommendation Status';
     case 'restaurant_request':
+      if (status === 'approved') return 'Your restaurant is now live with Eatoo';
       return 'Restaurant Request Status';
     default:
       return 'Notification';
@@ -19,16 +22,25 @@ function generateTitle(doc) {
 }
 
 function generateBody(doc) {
-  const { status, restaurantName, inviter, list } = doc.payload || {};
+  const { status, restaurantName, inviter, list, message } = doc.payload || {};
+  const normalizedStatus = String(status || '').toLowerCase();
   switch (doc.type) {
     case 'invite':
       return `${inviter} wants to share a foodlist with you: '${list?.name}'`;
     case 'user_submission':
+      if (message) return message;
+      if (normalizedStatus === 'approved') {
+        return `Thanks for recommending '${restaurantName}' — it's now live on Eatoo.`;
+      }
       return `Your recommendation for '${restaurantName}' was ${status}.`;
     case 'restaurant_request':
+      if (message) return message;
+      if (normalizedStatus === 'approved') {
+        return 'Head to your Business Profile to start setting up your menu.';
+      }
       return `Your restaurant request '${restaurantName}' was ${status}.`;
     default:
-      return doc.payload?.message || '';
+      return message || '';
   }
 }
 

@@ -96,7 +96,23 @@ export default function ExploreHomeScreen({
 
   // ---------- helpers ----------
   const toRM = (n) => (n == null || Number.isNaN(Number(n)) ? 'RM0' : `RM${Number(n)}`);
-  const toNumberPrice = (p) => parseInt(String(p).replace('RM', '')) || 0;
+  const parsePriceValue = (value) => {
+    const numeric = Number(String(value).replace(/[^0-9.]/g, ''));
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const matchesPriceRange = (priceValue, range) => {
+    if (priceValue == null) return false;
+    const text = String(range || '').toUpperCase();
+    if (text === 'RM0-RM10') return priceValue <= 10;
+    if (text === 'RM11-RM20') return priceValue >= 11 && priceValue <= 20;
+    if (text === 'RM21-RM30') return priceValue >= 21 && priceValue <= 30;
+    if (text === 'RM31+') return priceValue >= 31;
+    const nums = String(range || '').match(/(\d+(\.\d+)?)/g)?.map((n) => Number(n)) || [];
+    if (!nums.length) return true;
+    const min = nums[0];
+    const max = nums[1] ?? Number.POSITIVE_INFINITY;
+    return priceValue >= min && priceValue <= max;
+  };
   const sum = (arr) => arr.reduce((s, n) => s + n, 0);
 
   // --- % helpers (for the match badge) ---
@@ -358,7 +374,7 @@ export default function ExploreHomeScreen({
       menuId: it.menuId,
     }));
 
-    const prices = items.map((i) => toNumberPrice(i.price)).filter((n) => !isNaN(n));
+    const prices = items.map((i) => parsePriceValue(i.price)).filter((n) => Number.isFinite(n));
     const averagePriceValue = prices.length ? Math.round(sum(prices) / prices.length) : 0;
     const averagePrice = toRM(averagePriceValue);
     const rating =
@@ -599,16 +615,7 @@ export default function ExploreHomeScreen({
 
       const priceMatch =
         selectedPrice.length === 0 ||
-        selectedPrice.some((range) => {
-          const price = toNumberPrice(item.price);
-          switch (range) {
-            case 'RM0-RM10': return price <= 10;
-            case 'RM11-RM20': return price >= 11 && price <= 20;
-            case 'RM21-RM30': return price >= 21 && price <= 30;
-            case 'RM31+':     return price >= 31;
-            default: return true;
-          }
-        });
+        selectedPrice.some((range) => matchesPriceRange(parsePriceValue(item.price), range));
 
       // search term filtering for items list (by name/restaurant)
       const term = search.trim().toLowerCase();
@@ -624,9 +631,13 @@ export default function ExploreHomeScreen({
     if (sortBy === 'rating_desc') {
       sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     } else if (sortBy === 'price_asc') {
-      sorted.sort((a, b) => toNumberPrice(a.price) - toNumberPrice(b.price));
+      sorted.sort(
+        (a, b) => (parsePriceValue(a.price) ?? Number.POSITIVE_INFINITY) - (parsePriceValue(b.price) ?? Number.POSITIVE_INFINITY),
+      );
     } else if (sortBy === 'price_desc') {
-      sorted.sort((a, b) => toNumberPrice(b.price) - toNumberPrice(a.price));
+      sorted.sort(
+        (a, b) => (parsePriceValue(b.price) ?? 0) - (parsePriceValue(a.price) ?? 0),
+      );
     } else if (sortBy === 'relevance') {
       sorted.sort((a, b) => {
         const probA = bayesScores.has(a.restaurantId)
@@ -699,16 +710,8 @@ export default function ExploreHomeScreen({
           ? true
           : availableItems.some((i) => {
               if (i.restaurant !== r.name) return false;
-              const p = toNumberPrice(i.price);
-              return selectedPrice.some((range) => {
-                switch (range) {
-                  case 'RM0-RM10': return p <= 10;
-                  case 'RM11-RM20': return p >= 11 && p <= 20;
-                  case 'RM21-RM30': return p >= 21 && p <= 30;
-                  case 'RM31+':     return p >= 31;
-                  default:          return true;
-                }
-              });
+              const p = parsePriceValue(i.price);
+              return selectedPrice.some((range) => matchesPriceRange(p, range));
             });
 
       // search term filtering for restaurants list

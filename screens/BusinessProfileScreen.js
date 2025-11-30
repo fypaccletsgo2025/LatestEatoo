@@ -15,7 +15,6 @@ import { useNavigation } from '@react-navigation/native';
 import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
 import { Query, ID } from 'appwrite';
 import BackButton from '../components/BackButton';
-import { ManageRestaurantPanel } from './ManageRestaurantScreen';
 
 const BRAND = {
   primary: '#FF4D00',
@@ -32,9 +31,24 @@ const ensureArray = (value) => {
   return Array.isArray(value) ? value : [value];
 };
 
+const normalizeRestaurantId = (value) => {
+  if (!value) return null;
+  const str = value.toString().trim();
+  return str.replace(/^req-/i, '');
+};
+
+const formatLocation = (doc = {}) => {
+  const parts = [];
+  if (doc.city) parts.push(doc.city);
+  if (doc.state) parts.push(doc.state);
+  const cityState = parts.filter(Boolean).join(', ');
+  if (cityState) return cityState;
+  return doc.address || '';
+};
+
 const getLinkedRestaurantId = (doc) => {
   if (!doc) return null;
-  return (
+  const linked =
     doc.restaurantId ||
     doc.restaurant_id ||
     doc.linkedRestaurantId ||
@@ -43,8 +57,8 @@ const getLinkedRestaurantId = (doc) => {
     doc.restaurant?.$id ||
     doc.restaurant?.id ||
     doc.publishedRestaurantId ||
-    null
-  );
+    null;
+  return linked ? normalizeRestaurantId(linked) : null;
 };
 
 const formatRestaurantForManage = (doc) => {
@@ -96,10 +110,10 @@ export default function BusinessProfileScreen() {
   const [loadingManagedRestaurant, setLoadingManagedRestaurant] = React.useState(false);
   const [managedRestaurantError, setManagedRestaurantError] = React.useState('');
 
-  const managedRestaurantMeta = React.useMemo(
-    () => (managedRestaurant ? formatRestaurantForManage(managedRestaurant) : null),
-    [managedRestaurant]
-  );
+  const managedRestaurantMeta = React.useMemo(() => {
+    if (managedRestaurant) return formatRestaurantForManage(managedRestaurant);
+    return null;
+  }, [managedRestaurant]);
 
   // Form fields
   const [name, setName] = React.useState('');
@@ -198,7 +212,42 @@ export default function BusinessProfileScreen() {
     };
   }, [normalizeRequest]);
 
-  const canManageRestaurant = Boolean(bp?.status === 'approved' && bp?.restaurantId);
+  const fallbackManagedMeta = React.useMemo(() => {
+    if (!bp || bp.status !== 'approved') return null;
+    const id = normalizeRestaurantId(
+      managedRestaurant?.$id ||
+        bp.restaurantId ||
+        bp.restaurant_id ||
+        `req-${bp.id || bp.$id || 'restaurant'}`
+    );
+    const cuisines = ensureArray(bp.data?.cuisines);
+    const ambience = ensureArray(bp.data?.ambience);
+    return {
+      id,
+      name: bp.data?.businessName || 'Your Restaurant',
+      location: formatLocation(bp.data || {}),
+      cuisines,
+      cuisine: cuisines[0] || '',
+      ambience,
+      rating: 0,
+      averagePriceValue: 0,
+      averagePrice: 'RM0',
+      theme: (bp.data?.theme || [])[0] || '',
+    };
+  }, [bp, managedRestaurant]);
+
+  const effectiveManagedMeta = managedRestaurantMeta || fallbackManagedMeta;
+
+  const resolvedManagedRestaurantId = React.useMemo(
+    () =>
+      normalizeRestaurantId(
+        managedRestaurant?.$id || bp?.restaurantId || effectiveManagedMeta?.id || ''
+      ),
+    [managedRestaurant?.$id, bp?.restaurantId, effectiveManagedMeta?.id]
+  );
+
+  const canManageRestaurant = Boolean(bp?.status === 'approved');
+  const hasLiveRestaurant = Boolean(bp?.restaurantId);
 
   React.useEffect(() => {
     if (!bp || !bp.restaurantId) {
@@ -206,7 +255,7 @@ export default function BusinessProfileScreen() {
       setManagedRestaurantError('');
       return;
     }
-    const rid = bp.restaurantId;
+    const rid = normalizeRestaurantId(bp.restaurantId);
     let cancelled = false;
     const loadRestaurant = async () => {
       try {
@@ -323,6 +372,31 @@ export default function BusinessProfileScreen() {
     }
   };
 
+  const openRestaurantManager = () => {
+    if (!effectiveManagedMeta || !resolvedManagedRestaurantId) return;
+    const rid = resolvedManagedRestaurantId;
+    navigation.navigate('ManageRestaurant', {
+      restaurant: { ...effectiveManagedMeta, id: rid },
+      restaurantId: rid,
+    });
+  };
+
+  const buildStatusDetails = () => {
+    if (!bp) return null;
+    return {
+      status: bp.status,
+      businessName: bp.data?.businessName || '',
+      registrationNo: bp.data?.registrationNo || '',
+      email: bp.data?.email || '',
+      phone: bp.data?.phone || '',
+      address: bp.data?.address || '',
+      theme: bp.data?.theme || [],
+      ambience: bp.data?.ambience || [],
+      cuisines: bp.data?.cuisines || [],
+      note: bp.data?.note || '',
+    };
+  };
+
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: BRAND.bg }}
@@ -354,85 +428,48 @@ export default function BusinessProfileScreen() {
           </View>
         ) : null}
 
-        {/* Pending/Approved state */}
+        {/* Single manage card for any existing submission */}
         {bp && !showForm ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Submission Status</Text>
-            <StatusBadge
-              text={bp.status === 'pending' ? 'Pending Review' : bp.status}
-            />
-            <View style={{ marginTop: 12, gap: 6 }}>
-              <MetaRow label="Business" value={bp.data.businessName} />
-              <MetaRow label="Reg No." value={bp.data.registrationNo} />
-              <MetaRow label="Email" value={bp.data.email} />
-              {!!bp.data.phone && <MetaRow label="Phone" value={bp.data.phone} />}
-              {!!bp.data.address && <MetaRow label="Address" value={bp.data.address} />}
-              {!!bp.data.theme?.length && (
-                <MetaRow label="Theme" value={bp.data.theme.join(', ')} />
-              )}
-              {!!bp.data.ambience?.length && (
-                <MetaRow label="Ambience" value={bp.data.ambience.join(', ')} />
-              )}
-              {!!bp.data.cuisines?.length && (
-                <MetaRow label="Cuisines" value={bp.data.cuisines.join(', ')} />
-              )}
-            </View>
-            <Text style={styles.note}>
-              Our team will contact you for verification and next steps.
-            </Text>
-          </View>
-        ) : null}
-
-        {bp?.status !== 'approved' && bp?.restaurantId ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Verification in Progress</Text>
-            <Text style={styles.bodyCopy}>
-              We’ve linked your submission to the restaurant page. Once our team approves it, you’ll be able to update your menu and details from here.
-            </Text>
-          </View>
-        ) : null}
-
-        {canManageRestaurant ? (
-          <View style={styles.manageWrapper}>
-            <View style={styles.manageHeader}>
+          <View style={styles.manageCard}>
+            <View style={{ flex: 1 }}>
+              <StatusBadge text={bp.status === 'approved' ? 'Live' : 'Pending Review'} />
               <Text style={styles.manageTitle}>
-                Manage "{managedRestaurantMeta?.name || 'Your Restaurant'}"
+                {effectiveManagedMeta?.name || bp.data?.businessName || 'Your Restaurant'}
               </Text>
+              <Text style={[styles.bodyCopy, { marginTop: 6 }]}>
+                {bp.status === 'approved'
+                  ? 'Jump into the manager to edit menu items and details.'
+                  : 'Your submission is under review. You can view the details while we process it.'}
+              </Text>
+              {managedRestaurantError ? (
+                <Text style={[styles.bodyCopy, { color: '#B45309', marginTop: 8 }]}>
+                  {managedRestaurantError}
+                </Text>
+              ) : null}
+            </View>
+            <View style={{ width: 150, gap: 8 }}>
               <TouchableOpacity
-                style={[
-                  styles.viewLink,
-                  !managedRestaurantMeta ? styles.viewLinkDisabled : null,
-                ]}
-                disabled={!managedRestaurantMeta}
+                style={[styles.btn, styles.primaryBtn]}
                 onPress={() =>
-                  navigation.navigate('RestaurantDetail', {
-                    restaurantId: managedRestaurantMeta?.id,
+                  resolvedManagedRestaurantId &&
+                  navigation.navigate('ManageRestaurant', {
+                    restaurant: { ...effectiveManagedMeta, id: resolvedManagedRestaurantId },
+                    restaurantId: resolvedManagedRestaurantId,
+                    statusDetails: buildStatusDetails(),
                   })
                 }
+                disabled={!effectiveManagedMeta && bp.status !== 'approved'}
               >
-                <Text
-                  style={[
-                    styles.viewLinkText,
-                    !managedRestaurantMeta ? styles.viewLinkDisabledText : null,
-                  ]}
-                >
-                  View Public Page
+                <Text style={styles.btnText}>
+                  {bp.status === 'approved' ? 'Open Manager' : 'View Submission'}
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.viewLink, styles.viewLinkDisabled]}
+                disabled
+                onPress={() => {}}
+              />
             </View>
-            <Text style={styles.bodyCopy}>
-              Keep your public page accurate by updating menu items and details below.
-            </Text>
-            {loadingManagedRestaurant ? (
-              <ActivityIndicator color={BRAND.primary} style={{ marginTop: 16 }} />
-            ) : managedRestaurantMeta ? (
-              <ManageRestaurantPanel restaurant={managedRestaurantMeta} embedded />
-            ) : (
-              <Text style={[styles.bodyCopy, { color: '#B45309', marginTop: 12 }]}>
-                {managedRestaurantError ||
-                  'We are linking your live restaurant page. Please check back soon.'}
-              </Text>
-            )}
           </View>
         ) : null}
 
@@ -631,24 +668,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
   },
-  manageBtn: {
-    marginTop: 12,
-  },
-  manageWrapper: {
+  manageCard: {
+    borderRadius: 18,
+    padding: 18,
+    backgroundColor: BRAND.card,
     borderWidth: 1,
     borderColor: BRAND.line,
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: BRAND.card,
-    gap: 12,
-  },
-  manageHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
-  manageTitle: { fontSize: 16, fontWeight: '800', color: BRAND.ink },
+  manageKicker: {
+    color: BRAND.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  manageTitle: { fontSize: 18, fontWeight: '800', color: BRAND.ink, marginTop: 4 },
   viewLink: {
     paddingHorizontal: 12,
     paddingVertical: 6,

@@ -1051,7 +1051,15 @@ export default function RestaurantDetailScreen() {
       restaurant: restaurant?.name || it.restaurant || '',
       location: restaurant?.location || it.location || '',
     }));
-    return [...remote, ...user];
+    const merged = [...remote, ...user];
+    const seen = new Set();
+    return merged.filter((it) => {
+      const key = it.id || it.$id;
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }, [items, restaurant, restaurantId]);
 
   // Remote + local reviews together

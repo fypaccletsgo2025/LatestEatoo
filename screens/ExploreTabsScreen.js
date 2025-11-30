@@ -1,7 +1,7 @@
 // screens/ExploreTabsScreen.js
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, Keyboard } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, Keyboard, Animated, StyleSheet } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import ExploreHomeScreen from './ExploreHomeScreen';
@@ -15,6 +15,7 @@ import {
   replacePreferenceSelections,
   usePreferenceSelections,
 } from '../state/preferenceSelectionsStore';
+import { subscribeToUserNotifications } from '../services/notificationsService';
 
 export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [tab, setTab] = useState('home'); // home | search | add | review | library
@@ -24,6 +25,12 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [tabBarHiddenByScroll, setTabBarHiddenByScroll] = useState(false);
   const preferenceSelections = usePreferenceSelections();
+  const insets = useSafeAreaInsets();
+
+  // Inline toast for real-time notifications
+  const [toast, setToast] = useState(null);
+  const toastAnim = useRef(new Animated.Value(-120)).current;
+  const toastTimerRef = useRef(null);
 
   const rawName = (currentUser?.name || currentUser?.fullName || '').trim();
   const displayName = rawName || currentUser?.email || 'Guest';
@@ -116,6 +123,54 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
     };
   }, []);
 
+  // Subscribe to live notifications and surface a small toast
+  useEffect(() => {
+    if (!currentUser?.$id) return undefined;
+
+    const triggerToast = (entry) => {
+      if (!entry) return;
+      // Reset animation and clear any pending dismissals
+      toastAnim.stopAnimation();
+      toastAnim.setValue(-140);
+      setToast(entry);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      Animated.timing(toastAnim, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+      toastTimerRef.current = setTimeout(() => {
+        Animated.timing(toastAnim, {
+          toValue: -140,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) setToast(null);
+        });
+      }, 2800);
+    };
+
+    const unsubscribe = subscribeToUserNotifications(currentUser.$id, (event, mappedDoc) => {
+      const isCreateEvent = Array.isArray(event?.events)
+        ? event.events.some((e) => String(e).includes('.create'))
+        : true;
+      if (!isCreateEvent || !mappedDoc) return;
+      triggerToast({
+        title: mappedDoc.title || 'New notification',
+        body: mappedDoc.body || '',
+      });
+    });
+
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      unsubscribe?.();
+    };
+  }, [currentUser?.$id, toastAnim]);
+
 
   const isTabBarVisible = !drawerOpen && !showPQ && !tabBarHiddenByScroll && !keyboardVisible;
 
@@ -125,6 +180,34 @@ export default function ExploreTabsScreen({ currentUser, onLogout }) {
       edges={['top', 'right', 'bottom', 'left']}
     >
       <View style={{ flex: 1 }}>
+        {toast ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.toast,
+              {
+                top: Math.max(insets.top + 8, 14),
+                transform: [{ translateY: toastAnim }],
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={styles.toastIcon}>
+                <Ionicons name="notifications" size={16} color="#FF4D00" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toastTitle} numberOfLines={1}>
+                  {toast.title}
+                </Text>
+                {toast.body ? (
+                  <Text style={styles.toastBody} numberOfLines={2}>
+                    {toast.body}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </Animated.View>
+        ) : null}
         <View
           style={{
             flexDirection: 'row',
@@ -345,3 +428,31 @@ function DrawerItem({ label, onPress, danger }) {
     </TouchableOpacity>
   );
 }
+
+const styles = StyleSheet.create({
+  toast: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 20,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  toastIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFF3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastTitle: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  toastBody: { color: '#E5E7EB', marginTop: 4, fontSize: 12, lineHeight: 16 },
+});

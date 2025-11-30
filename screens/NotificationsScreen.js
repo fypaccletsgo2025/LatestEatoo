@@ -34,14 +34,49 @@ const NOTIF_SOURCES = {
   RESTAURANT_REQUEST: 'restaurant_request',
 };
 const FINAL_STATUSES = new Set(['approved', 'rejected']);
+const getOwnerId = (doc = {}) =>
+  doc.$createdBy ||
+  doc.userId ||
+  doc.user_id ||
+  doc.user?.$id ||
+  doc.user?.id ||
+  doc.ownerId ||
+  doc.owner_id ||
+  null;
+const getSubmitterId = (doc = {}) =>
+  doc.submittedBy ||
+  doc.submitted_by ||
+  doc.submitterId ||
+  doc.submitter_id ||
+  doc.recommenderId ||
+  doc.recommender_id ||
+  doc.userId ||
+  doc.user_id ||
+  doc.$createdBy ||
+  doc.user?.$id ||
+  doc.user?.id ||
+  null;
+const shouldNotifyUser = (doc, userId) => {
+  if (!userId) return false;
+  const owner = getOwnerId(doc);
+  const submitter = getSubmitterId(doc);
+  return owner === userId || submitter === userId;
+};
 
 // Helper to generate notification title
 const generateTitle = (doc) => {
+  const status = String(doc?.payload?.status || '').toLowerCase();
   if (doc.type === 'invite') return 'Foodlist Invite';
   if (doc.type === 'invite_response') return 'Invite Response';
   if (doc.type === 'member_update') return 'Foodlist Update';
-  if (doc.type === 'user_submission') return 'Your Recommendation Status';
-  if (doc.type === 'restaurant_request') return 'Restaurant Request Status';
+  if (doc.type === 'user_submission') {
+    if (status === 'approved') return 'The restaurant you submitted is now on Eatoo';
+    return 'Your Recommendation Status';
+  }
+  if (doc.type === 'restaurant_request') {
+    if (status === 'approved') return 'Your restaurant is now live with Eatoo';
+    return 'Restaurant Request Status';
+  }
   return 'Notification';
 };
 
@@ -83,9 +118,17 @@ const generateBody = (doc) => {
     return `${memberName} ${verb} '${listName}'${actor}.`;
   }
   if (doc.type === 'user_submission') {
+    if (payload.message) return payload.message;
+    if (String(payload.status || '').toLowerCase() === 'approved') {
+      return `Thanks for recommending '${payload.restaurantName}' — it's now live on Eatoo.`;
+    }
     return `Your recommendation for '${payload.restaurantName}' was ${payload.status}.`;
   }
   if (doc.type === 'restaurant_request') {
+    if (payload.message) return payload.message;
+    if (String(payload.status || '').toLowerCase() === 'approved') {
+      return 'Head to your Business Profile to start setting up your menu.';
+    }
     return `Your restaurant request '${payload.restaurantName}' was ${payload.status}.`;
   }
   return '';
@@ -142,7 +185,7 @@ const mapAppwriteNotification = (doc) => {
 };
 
 const mapSubmissionNotification = (doc) => {
-  const status = String(doc.status || '').toLowerCase();
+  const status = String(doc.status || doc.state || '').toLowerCase();
   if (!FINAL_STATUSES.has(status)) return null;
   const restaurantName = doc.name || doc.restaurantName || doc.businessName || 'your restaurant';
   return buildNotificationEntry({
@@ -161,7 +204,7 @@ const mapSubmissionNotification = (doc) => {
 };
 
 const mapRestaurantRequestNotification = (doc) => {
-  const status = String(doc.status || '').toLowerCase();
+  const status = String(doc.status || doc.state || '').toLowerCase();
   if (!FINAL_STATUSES.has(status)) return null;
   const restaurantName = doc.businessName || doc.name || doc.restaurantName || 'your request';
   return buildNotificationEntry({
@@ -263,11 +306,11 @@ export default function NotificationsScreen() {
           .map(mapAppwriteNotification)
           .filter(Boolean);
         const submissionEntries = submissions.documents
-          .filter((doc) => doc.$createdBy === currentUserId)
+          .filter((doc) => shouldNotifyUser(doc, currentUserId))
           .map(mapSubmissionNotification)
           .filter(Boolean);
         const requestEntries = requests.documents
-          .filter((doc) => doc.$createdBy === currentUserId)
+          .filter((doc) => shouldNotifyUser(doc, currentUserId))
           .map(mapRestaurantRequestNotification)
           .filter(Boolean);
         setNotifications(sortNotificationsDesc([...inviteEntries, ...submissionEntries, ...requestEntries]));
@@ -321,7 +364,7 @@ export default function NotificationsScreen() {
           (response) => {
             const doc = response.payload;
             if (!doc?.$id) return;
-            if (doc.$createdBy !== currentUserId) return;
+            if (!shouldNotifyUser(doc, currentUserId)) return;
             const events = response.events || [];
             const entryId = `${NOTIF_SOURCES.USER_SUBMISSION}:${doc.$id}`;
             if (events.some((evt) => evt.endsWith('.delete'))) {
@@ -344,7 +387,7 @@ export default function NotificationsScreen() {
           (response) => {
             const doc = response.payload;
             if (!doc?.$id) return;
-            if (doc.$createdBy !== currentUserId) return;
+            if (!shouldNotifyUser(doc, currentUserId)) return;
             const events = response.events || [];
             const entryId = `${NOTIF_SOURCES.RESTAURANT_REQUEST}:${doc.$id}`;
             if (events.some((evt) => evt.endsWith('.delete'))) {

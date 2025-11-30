@@ -107,7 +107,8 @@ export default function DiscoverResultsScreen({ route, navigation }) {
     return { avgPrice, avgRating };
   }, [items]);
 
-  const heroTagLabel = tag ? toTitleCase(tag) : 'Discoveries';
+  const normalizedTag = tag ? String(tag).trim().toLowerCase() : null;
+  const heroTagLabel = normalizedTag ? toTitleCase(normalizedTag) : 'Discoveries';
 
   // Tag-specific fun phrases
   const phraseMap = {
@@ -117,9 +118,8 @@ export default function DiscoverResultsScreen({ route, navigation }) {
     hearty: 'For big appetites and warm hearts',
     refreshing: 'Fresh flavors to invigorate your day',
     creamy: 'Indulgence in every smooth bite',
-    aromatic: 'A feast for the senses',
+    savory: 'Comforting, rich, and savory',
   };
-  const normalizedTag = tag ? String(tag).trim().toLowerCase() : null;
   const heroMeta = phraseMap[normalizedTag] || 'Explore delicious options';
 
   const stats = useMemo(() => {

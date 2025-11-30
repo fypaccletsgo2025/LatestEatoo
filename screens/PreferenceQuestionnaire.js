@@ -1,6 +1,6 @@
 // screens/PreferenceQuestionnaire.js
-import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, PanResponder } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCatalogData } from '../hooks/useCatalogData';
@@ -34,6 +34,58 @@ function SectionCard({ icon, title, description, children }) {
   );
 }
 
+const normalizeValue = (v) => String(v ?? '').trim();
+const normalizeKey = (v) => normalizeValue(v).toLowerCase();
+
+const buildOptionList = (values = []) => {
+  const seen = new Set();
+  const out = [];
+  values.forEach((valRaw) => {
+    const val = normalizeValue(valRaw);
+    const key = normalizeKey(val);
+    if (!val || seen.has(key)) return;
+    seen.add(key);
+    out.push(val);
+  });
+  return out.sort((a, b) => a.localeCompare(b));
+};
+
+const topOptionsByFrequency = (values = [], limit = 6) => {
+  const counts = values.reduce((acc, raw) => {
+    const val = normalizeValue(raw);
+    const key = normalizeKey(val);
+    if (!val) return acc;
+    acc[key] = acc[key] || { label: val, count: 0 };
+    acc[key].count += 1;
+    return acc;
+  }, {});
+  return Object.values(counts)
+    .sort((a, b) => {
+      if (b.count === a.count) return a.label.localeCompare(b.label);
+      return b.count - a.count;
+    })
+    .slice(0, limit)
+    .map((entry) => entry.label);
+};
+
+const PRICE_MIN = 0;
+const PRICE_MAX = 100;
+const THUMB_WIDTH = 44;
+
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+const parsePriceSelection = (list = []) => {
+  if (!Array.isArray(list) || list.length === 0) {
+    return { min: PRICE_MIN, max: PRICE_MAX };
+  }
+  const first = String(list[0]);
+  const nums = first.match(/(\d+(\.\d+)?)/g)?.map((n) => Number(n)) || [];
+  if (nums.length === 0) return { min: PRICE_MIN, max: PRICE_MAX };
+  const min = clamp(nums[0], PRICE_MIN, PRICE_MAX);
+  const max = clamp(nums[1] ?? PRICE_MAX, PRICE_MIN, PRICE_MAX);
+  return { min: Math.min(min, max), max: Math.max(min, max) };
+};
+
 export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   const {
@@ -51,15 +103,15 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
   } = route?.params || {};
 
   const dietOptions = useMemo(
-    () => Array.from(new Set((availableItems || []).map((i) => i.type).filter(Boolean))),
+    () => topOptionsByFrequency((availableItems || []).map((i) => i.type)),
     [availableItems]
   );
   const cuisineOptions = useMemo(
-    () => Array.from(new Set((availableItems || []).map((i) => i.cuisine).filter(Boolean))),
+    () => topOptionsByFrequency((availableItems || []).map((i) => i.cuisine)),
     [availableItems]
   );
   const moodOptions = useMemo(
-    () => Array.from(new Set((availableRestaurants || []).flatMap(r => r.ambience || []).filter(Boolean))),
+    () => topOptionsByFrequency((availableRestaurants || []).flatMap((r) => r.ambience || [])),
     [availableRestaurants]
   );
   const priceOptions = ['RM0-RM10', 'RM11-RM20', 'RM21-RM30', 'RM31+'];
@@ -68,6 +120,25 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const [selectedCuisine, setSelectedCuisine] = useState(preCuisine);
   const [selectedMood, setSelectedMood] = useState(preMood);
   const [selectedPrice, setSelectedPrice] = useState(prePrice);
+  const [priceRange, setPriceRange] = useState(parsePriceSelection(prePrice));
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [dragState, setDragState] = useState({ active: null, startX: 0, startVal: 0 });
+
+  useEffect(() => {
+    setSelectedDiet(preDiet);
+    setSelectedCuisine(preCuisine);
+    setSelectedMood(preMood);
+    setSelectedPrice(prePrice);
+    setPriceRange(parsePriceSelection(prePrice));
+  }, [preDiet, preCuisine, preMood, prePrice]);
+
+  useEffect(() => {
+    const token =
+      priceRange.min <= PRICE_MIN && priceRange.max >= PRICE_MAX
+        ? []
+        : [`${priceRange.min}-${priceRange.max}`];
+    setSelectedPrice(token);
+  }, [priceRange]);
 
   const allSelections = useMemo(
     () => [...selectedDiet, ...selectedCuisine, ...selectedMood, ...selectedPrice],
@@ -76,11 +147,83 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
   const limitedSelections = useMemo(() => allSelections.slice(0, 3), [allSelections]);
 
   const toggle = (setter, list, value) => {
-    setter(list.includes(value) ? list.filter(x => x !== value) : [...list, value]);
+    const key = normalizeKey(value);
+    setter(
+      list.some((x) => normalizeKey(x) === key)
+        ? list.filter((x) => normalizeKey(x) !== key)
+        : [...list, value]
+    );
   };
 
+  const valueToPosition = (val) => {
+    if (!trackWidth) return 0;
+    const ratio = (val - PRICE_MIN) / (PRICE_MAX - PRICE_MIN);
+    return clamp(ratio * trackWidth, 0, trackWidth);
+  };
+
+  const positionToValue = (pos) => {
+    if (!trackWidth) return PRICE_MIN;
+    const ratio = clamp(pos / trackWidth, 0, 1);
+    return Math.round(PRICE_MIN + ratio * (PRICE_MAX - PRICE_MIN));
+  };
+
+  const minPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: (_, g) => {
+          setDragState({ active: 'min', startX: g.x0, startVal: priceRange.min });
+        },
+        onPanResponderMove: (_, g) => {
+          if (!trackWidth) return;
+          const delta = g.dx;
+          const startPos = valueToPosition(dragState.startVal);
+          const nextPos = clamp(startPos + delta, 0, valueToPosition(priceRange.max) - 10);
+          const nextVal = positionToValue(nextPos);
+          setPriceRange((prev) => ({ ...prev, min: Math.min(nextVal, prev.max) }));
+        },
+        onPanResponderRelease: () => {
+          setDragState({ active: null, startX: 0, startVal: 0 });
+        },
+      }),
+    [dragState.startVal, priceRange.max, trackWidth],
+  );
+
+  const maxPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: (_, g) => {
+          setDragState({ active: 'max', startX: g.x0, startVal: priceRange.max });
+        },
+        onPanResponderMove: (_, g) => {
+          if (!trackWidth) return;
+          const delta = g.dx;
+          const startPos = valueToPosition(dragState.startVal);
+          const nextPos = clamp(startPos + delta, valueToPosition(priceRange.min) + 10, trackWidth);
+          const nextVal = positionToValue(nextPos);
+          setPriceRange((prev) => ({ ...prev, max: Math.max(nextVal, prev.min) }));
+        },
+        onPanResponderRelease: () => {
+          setDragState({ active: null, startX: 0, startVal: 0 });
+        },
+      }),
+    [dragState.startVal, priceRange.min, trackWidth],
+  );
+
+  const sliderLabel = `RM${priceRange.min} - RM${priceRange.max}`;
+
   const handleApply = () => {
-    const payload = { selectedDiet, selectedCuisine, selectedMood, selectedPrice };
+    const priceSelection =
+      priceRange.min <= PRICE_MIN && priceRange.max >= PRICE_MAX
+        ? []
+        : [`${priceRange.min}-${priceRange.max}`];
+    const payload = {
+      selectedDiet,
+      selectedCuisine,
+      selectedMood,
+      selectedPrice: priceSelection,
+    };
     replacePreferenceSelections(payload);
     if (onComplete) onComplete(payload);
     else if (navigation?.navigate) navigation.navigate('PreferenceMainPage', payload);
@@ -91,6 +234,7 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
     setSelectedCuisine([]);
     setSelectedMood([]);
     setSelectedPrice([]);
+    setPriceRange({ min: PRICE_MIN, max: PRICE_MAX });
   };
 
   const selectionSubtitle = allSelections.length
@@ -186,16 +330,46 @@ export const PreferenceQuestionnaire = ({ route, navigation }) => {
           </View>
         </SectionCard>
 
-        <SectionCard icon="tag" title="Budget" description="Find what fits your wallet">
-          <View style={styles.chipsWrap}>
-            {priceOptions.map(opt => (
-              <Chip
-                key={opt}
-                label={opt}
-                selected={selectedPrice.includes(opt)}
-                onPress={() => toggle(setSelectedPrice, selectedPrice, opt)}
-              />
-            ))}
+        <SectionCard icon="tag" title="Budget" description="Slide to set your min/max spend">
+          <View style={styles.sliderHeader}>
+            <Text style={styles.sliderLabel}>{sliderLabel}</Text>
+          </View>
+          <View
+            style={styles.sliderTrackWrap}
+            onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+          >
+            <View style={styles.sliderTrack} />
+            <View
+              style={[
+                styles.sliderRange,
+                {
+                  left: valueToPosition(priceRange.min),
+                  right: trackWidth - valueToPosition(priceRange.max),
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.sliderThumb,
+                { left: valueToPosition(priceRange.min) - THUMB_WIDTH / 2, width: THUMB_WIDTH },
+              ]}
+              {...minPan.panHandlers}
+            >
+              <Text style={styles.sliderThumbText}>Min</Text>
+            </View>
+            <View
+              style={[
+                styles.sliderThumb,
+                { left: valueToPosition(priceRange.max) - THUMB_WIDTH / 2, width: THUMB_WIDTH },
+              ]}
+              {...maxPan.panHandlers}
+            >
+              <Text style={styles.sliderThumbText}>Max</Text>
+            </View>
+          </View>
+          <View style={styles.sliderFooter}>
+            <Text style={styles.sliderTick}>RM{PRICE_MIN}</Text>
+            <Text style={styles.sliderTick}>RM{PRICE_MAX}</Text>
           </View>
         </SectionCard>
       </ScrollView>
@@ -340,6 +514,55 @@ const styles = StyleSheet.create({
   },
   chipText: { color: '#5B4034', fontWeight: '600', fontSize: 13 },
   chipTextSelected: { color: '#FFFFFF' },
+
+  sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sliderLabel: { fontWeight: '800', color: '#FF4D00', fontSize: 16 },
+  sliderTrackWrap: {
+    marginTop: 12,
+    height: 48,
+    justifyContent: 'center',
+    alignSelf: 'center',
+    width: '90%',
+    maxWidth: 240,
+  },
+  sliderTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 6,
+    borderRadius: 4,
+    backgroundColor: '#FFE8D2',
+  },
+  sliderRange: {
+    position: 'absolute',
+    height: 6,
+    borderRadius: 4,
+    backgroundColor: '#FF4D00',
+  },
+  sliderThumb: {
+    position: 'absolute',
+    width: THUMB_WIDTH,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FF4D00',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF4D00',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  sliderThumbText: { color: '#FF4D00', fontWeight: '700', fontSize: 12 },
+  sliderFooter: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sliderTick: { color: '#6B4A3F', fontWeight: '600' },
 
   // Bottom actions
   fixedButtonContainer: {

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { ID } from 'appwrite';
-import { db, DB_ID, COL, ensureSession } from '../appwrite';
+import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
 
 export default function AddRestaurantScreen({ onScrollDirectionChange }) {
   const [name, setName] = useState('');
@@ -96,7 +96,17 @@ export default function AddRestaurantScreen({ onScrollDirectionChange }) {
     try {
       setSubmitting(true);
       await ensureSession();
-      await db.createDocument(DB_ID, COL.userSubmissions, ID.unique(), restaurantData);
+      let submitterId = null;
+      try {
+        const me = await account.get();
+        submitterId = me?.$id || null;
+      } catch (_) {
+        submitterId = null;
+      }
+      await db.createDocument(DB_ID, COL.userSubmissions, ID.unique(), {
+        ...restaurantData,
+        userId: submitterId,
+      });
       Alert.alert('Thank you!', `Thank you for recommending ${trimmedName}! Our team will review it.`);
       setName('');
       setCity('');
