@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Appwrite
 import { db, DB_ID, COL, ensureSession } from '../appwrite';
@@ -74,6 +75,7 @@ export default function SearchScreen({
   const [items, setItems] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const scrollOffsetRef = useRef(0);
   const lastDirectionRef = useRef('down');
   const reportScrollDirection = useCallback(
@@ -118,7 +120,48 @@ export default function SearchScreen({
     }
   }, [initialQuery]);
 
-  // Load data from Appwrite
+  // Load data from Appwrite (refresh on focus for predictable updates)
+  const loadData = useCallback(async () => {
+    let cancelled = false;
+    try {
+      setLoading(true);
+      await ensureSession();
+      const [itemsRes, restRes] = await Promise.all([
+        db.listDocuments(DB_ID, COL.items, [Query.limit(200)]),
+        db.listDocuments(DB_ID, COL.restaurants, [Query.limit(200)]),
+      ]);
+      if (cancelled) return;
+      setItems((itemsRes.documents || []).map(normalizeItemDoc));
+      setRestaurants((restRes.documents || []).map(normalizeRestaurantDoc));
+    } catch (e) {
+      console.warn('SearchScreen: failed to load', e?.message || e);
+      if (!cancelled) {
+        setItems([]);
+        setRestaurants([]);
+      }
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!initialLoadDone) {
+      loadData();
+      setInitialLoadDone(true);
+    }
+  }, [initialLoadDone, loadData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+      return () => {};
+    }, [loadData])
+  );
+
+  // Legacy mount-only effect kept for compatibility
   useEffect(() => {
     let cancelled = false;
     (async () => {

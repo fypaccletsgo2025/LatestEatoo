@@ -289,6 +289,8 @@ export function ManageRestaurantPanel({
   const [tags, setTags] = useState('');
   const [loadingItems, setLoadingItems] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
   const [menuId, setMenuId] = useState(null);
   const [loadingMenu, setLoadingMenu] = useState(false);
 
@@ -390,6 +392,56 @@ export function ManageRestaurantPanel({
     return created.$id || created.id;
   };
 
+  const startAddItem = () => {
+    setEditingItem(null);
+    setName('');
+    setType('meal');
+    setPrice('');
+    setDesc('');
+    setTags('');
+    setShowAdd(true);
+  };
+
+  const startEditItem = (item) => {
+    if (!item) return;
+    const numericPrice =
+      typeof item.priceRM === 'number'
+        ? item.priceRM
+        : parsePriceValue(item.price || '') || null;
+    setEditingItem(item);
+    setName(item.name || '');
+    setType(item.type || 'meal');
+    setPrice(numericPrice != null ? String(numericPrice) : '');
+    setDesc(item.description || '');
+    setTags(Array.isArray(item.tags) ? item.tags.join(', ') : '');
+    setShowAdd(true);
+  };
+
+  const handleDeleteItem = (item) => {
+    if (!item?.id) return;
+    Alert.alert('Remove item', 'Are you sure you want to delete this menu item?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          if (deletingId) return;
+          try {
+            setDeletingId(item.id);
+            await ensureSession();
+            await db.deleteDocument(DB_ID, COL.items, item.id);
+            setItems((prev) => prev.filter((it) => it.id !== item.id));
+          } catch (err) {
+            console.warn('ManageRestaurant: failed to delete item', err?.message || err);
+            Alert.alert('Unable to delete', err?.message || 'Please try again later.');
+          } finally {
+            setDeletingId(null);
+          }
+        },
+      },
+    ]);
+  };
+
   const submitNewItem = async () => {
     if (!name.trim() || !price.trim()) {
       Alert.alert('Missing fields', 'Please provide Name and Price (RM).');
@@ -453,20 +505,29 @@ export function ManageRestaurantPanel({
         permissions.push(Permission.update(Role.user(userId)), Permission.delete(Role.user(userId)));
       }
 
-      const created = await db.createDocument(DB_ID, COL.items, ID.unique(), payload, permissions);
       const normalizedRestaurant = restaurantId
         ? { ...resolvedRestaurant, id: restaurantId, $id: restaurantId }
         : resolvedRestaurant;
-      const normalized = normalizeItemForUi(created, normalizedRestaurant);
-      setItems((prev) => [...prev, normalized]);
-      addUserItem(normalizedRestaurant || resolvedRestaurant, normalized);
-      Alert.alert('Item saved', 'Your menu item is now stored in Appwrite.');
+      if (editingItem?.id) {
+        const updated = await db.updateDocument(DB_ID, COL.items, editingItem.id, payload, permissions);
+        const normalized = normalizeItemForUi(updated, normalizedRestaurant);
+        setItems((prev) => prev.map((it) => (it.id === normalized.id ? normalized : it)));
+        addUserItem(normalizedRestaurant || resolvedRestaurant, normalized);
+        Alert.alert('Item updated', 'Your menu item has been updated.');
+      } else {
+        const created = await db.createDocument(DB_ID, COL.items, ID.unique(), payload, permissions);
+        const normalized = normalizeItemForUi(created, normalizedRestaurant);
+        setItems((prev) => [...prev, normalized]);
+        addUserItem(normalizedRestaurant || resolvedRestaurant, normalized);
+        Alert.alert('Item saved', 'Your menu item is now stored in Appwrite.');
+      }
       setShowAdd(false);
       setName('');
       setType('meal');
       setPrice('');
       setDesc('');
       setTags('');
+      setEditingItem(null);
     } catch (err) {
       console.warn('ManageRestaurant: failed to save item', err?.message || err);
       Alert.alert('Unable to save', err?.message || 'Please try again later.');
@@ -546,7 +607,7 @@ export function ManageRestaurantPanel({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[detailStyles.actionBtn, { backgroundColor: BRAND.primary }]}
-                onPress={() => setShowAdd(true)}
+                onPress={startAddItem}
               >
                 <Text style={detailStyles.actionText}>Add Menu Item</Text>
               </TouchableOpacity>
@@ -647,18 +708,14 @@ export function ManageRestaurantPanel({
                     <View style={manageStyles.itemActionsRow}>
                       <TouchableOpacity
                         style={manageStyles.itemActionBtn}
-                        onPress={() =>
-                          Alert.alert('Edit item', 'Wire this to your Appwrite update logic.')
-                        }
+                        onPress={() => startEditItem(item)}
                       >
                         <Ionicons name="pencil-outline" size={14} color={BRAND.ink} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={manageStyles.itemActionBtn}
-                        onPress={() =>
-                          Alert.alert('Remove item', 'Wire this to your Appwrite delete logic.')
-                        }
-                      >
+                        onPress={() => handleDeleteItem(item)}
+                        >
                         <Ionicons name="trash-outline" size={14} color={BRAND.ink} />
                       </TouchableOpacity>
                     </View>
@@ -685,22 +742,41 @@ export function ManageRestaurantPanel({
           transparent
           animationType="fade"
           visible={showAdd}
-          onRequestClose={() => setShowAdd(false)}
+          onRequestClose={() => {
+            setShowAdd(false);
+            setEditingItem(null);
+          }}
         >
           <View style={detailStyles.overlay}>
-            <TouchableOpacity style={detailStyles.overlayBg} onPress={() => setShowAdd(false)} />
+            <TouchableOpacity
+              style={detailStyles.overlayBg}
+              onPress={() => {
+                setShowAdd(false);
+                setEditingItem(null);
+              }}
+            />
             <View style={[detailStyles.modalCard, manageStyles.formCard]}>
               <View style={manageStyles.formHeader}>
                 <View style={manageStyles.formIcon}>
                   <Ionicons name="fast-food-outline" size={18} color={BRAND.ink} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={detailStyles.modalTitle}>Add Menu Item</Text>
+                  <Text style={detailStyles.modalTitle}>
+                    {editingItem ? 'Edit Menu Item' : 'Add Menu Item'}
+                  </Text>
                   <Text style={detailStyles.modalHelper}>
-                    Quick add your signature dishes with clear pricing.
+                    {editingItem
+                      ? 'Update details and pricing for this menu item.'
+                      : 'Quick add your signature dishes with clear pricing.'}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => setShowAdd(false)} style={manageStyles.closeBtn}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowAdd(false);
+                    setEditingItem(null);
+                  }}
+                  style={manageStyles.closeBtn}
+                >
                   <Ionicons name="close" size={18} color={BRAND.ink} />
                 </TouchableOpacity>
               </View>
@@ -781,7 +857,10 @@ export function ManageRestaurantPanel({
               <View style={manageStyles.modalButtonsRow}>
                 <TouchableOpacity
                   style={[detailStyles.submitBtn, { backgroundColor: BRAND.inkMuted }]}
-                  onPress={() => setShowAdd(false)}
+                  onPress={() => {
+                    setShowAdd(false);
+                    setEditingItem(null);
+                  }}
                 >
                   <Text style={detailStyles.submitText}>Cancel</Text>
                 </TouchableOpacity>
@@ -793,7 +872,9 @@ export function ManageRestaurantPanel({
                   onPress={submitNewItem}
                   disabled={savingItem}
                 >
-                  <Text style={detailStyles.submitText}>{savingItem ? 'Saving...' : 'Save Item'}</Text>
+                  <Text style={detailStyles.submitText}>
+                    {savingItem ? 'Saving...' : editingItem ? 'Update Item' : 'Save Item'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>

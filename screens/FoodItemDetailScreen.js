@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import BackButton from '../components/BackButton';
 import { isItemLiked, likeItem, unlikeItem } from '../state/libraryStore';
 
@@ -96,45 +96,56 @@ export default function FoodItemDetailScreen() {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
-  React.useEffect(() => {
+  const loadItem = React.useCallback(async () => {
+    if (!passedItemId) return;
     let cancelled = false;
-
-    async function fetchItem() {
-      if (item || !passedItemId) return;
-      setLoading(true);
-      setError(null);
-      try {
-        // 1) get the item document
-        const it = await db.getDocument(DB_ID, COL.items, passedItemId);
-
-        // 2) get the restaurant (for name/location display)
-        let restaurantDoc = null;
-        if (it.restaurantId) {
-          try {
-            restaurantDoc = await db.getDocument(DB_ID, COL.restaurants, it.restaurantId);
-          } catch (e) {
-            // restaurant might be missing; keep going
-          }
+    setLoading(true);
+    setError(null);
+    try {
+      const it = await db.getDocument(DB_ID, COL.items, passedItemId);
+      let restaurantDoc = null;
+      if (it.restaurantId) {
+        try {
+          restaurantDoc = await db.getDocument(DB_ID, COL.restaurants, it.restaurantId);
+        } catch (e) {
+          // restaurant might be missing; keep going
         }
-
-        const normalized = normalizeItem({ itemDoc: it, restaurantDoc });
-        if (!cancelled) {
-          setItem(normalized);
-          setLiked(isItemLiked(normalized.id));
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || 'Failed to load item');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
+      const normalized = normalizeItem({ itemDoc: it, restaurantDoc });
+      if (!cancelled) {
+        setItem(normalized);
+        setLiked(isItemLiked(normalized.id));
+      }
+    } catch (e) {
+      if (!cancelled) {
+        setError(e?.message || 'Failed to load item');
+        setItem(null);
+      }
+    } finally {
+      if (!cancelled) setLoading(false);
     }
-
-    fetchItem();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
   }, [passedItemId]);
+
+  React.useEffect(() => {
+    if (passedItem) {
+      setItem(passedItem);
+      setLiked(isItemLiked(passedItem.id));
+    }
+  }, [passedItem]);
+
+  React.useEffect(() => {
+    loadItem();
+  }, [loadItem]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadItem();
+      return () => {};
+    }, [loadItem])
+  );
 
   const toggleLike = () => {
     if (!item?.id) return;
