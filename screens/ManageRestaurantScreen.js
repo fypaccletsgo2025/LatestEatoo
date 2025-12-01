@@ -563,11 +563,19 @@ export function ManageRestaurantPanel({
     setShowEditRestaurant(false);
   };
 
-  const averagePriceText =
+  const averagePriceValue =
     typeof resolvedRestaurant.averagePriceValue === 'number'
-      ? `RM${resolvedRestaurant.averagePriceValue}`
+      ? resolvedRestaurant.averagePriceValue
+      : null;
+  const averagePriceText =
+    averagePriceValue != null
+      ? `RM${averagePriceValue}`
       : resolvedRestaurant.averagePrice || 'RM-';
   const cuisinesLabel = (resolvedRestaurant.cuisines || []).join(', ');
+  const effectiveRating =
+    typeof resolvedRestaurant.rating === 'number'
+      ? resolvedRestaurant.rating
+      : null;
 
   const containerStyles = [manageStyles.panelRoot, embedded ? manageStyles.embeddedRoot : null];
   const paddingStyle = embedded ? null : { marginHorizontal: 20 };
@@ -591,7 +599,7 @@ export function ManageRestaurantPanel({
         <Text style={detailStyles.meta}>{resolvedRestaurant.location}</Text>
 
         <View style={detailStyles.badgeRow}>
-          <Badge text={`${resolvedRestaurant.rating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
+          <Badge text={`${effectiveRating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
           <Badge text={averagePriceText} />
           {cuisinesLabel ? <Badge text={cuisinesLabel} color={BRAND.metaBg} /> : null}
         </View>

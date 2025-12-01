@@ -25,10 +25,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScrollView } from 'react-native-gesture-handler';
 import * as Location from 'expo-location';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { ID } from 'appwrite';
 
 // Appwrite
-import { db, DB_ID, COL } from '../appwrite';
-import { Query } from 'appwrite';
+import { db, DB_ID, COL, ensureSession, account } from '../appwrite';
+import { Permission, Query, Role } from 'appwrite';
 
 // Local state modules (kept)
 import { getUserItemsForRestaurant } from '../state/userMenusStore';
@@ -204,6 +205,7 @@ async function fetchItemsForRestaurant(restaurantId) {
     name: it.name,
     type: it.type || 'other',
     price: toRM(it.priceRM),
+    priceValue: typeof it.priceRM === 'number' ? it.priceRM : null,
     cuisine: it.cuisine || '',
     rating: it.rating ?? null,
     restaurant: '', // filled after we know restaurant doc
@@ -219,8 +221,11 @@ async function fetchReviewsForRestaurant(restaurantId) {
   const res = await db.listDocuments(DB_ID, COL.reviews, [
     Query.equal('subjectType', 'restaurant'),
     Query.equal('subjectId', restaurantId),
+    Query.limit(1000),
   ]);
   return (res.documents || []).map((rv) => ({
+    reviewId: rv.$id,
+    userId: rv.userId || rv.user_id || rv.userID || null,
     user: rv.userName || 'User',
     rating: rv.rating ?? null,
     comment: rv.comment || '',
@@ -230,11 +235,37 @@ async function fetchReviewsForRestaurant(restaurantId) {
   }));
 }
 
+// Recompute and persist the restaurant's average rating in the restaurants collection.
+async function updateRestaurantAverageRating(restaurantId) {
+  if (!restaurantId) return null;
+  try {
+    const res = await db.listDocuments(DB_ID, COL.reviews, [
+      Query.equal('subjectType', 'restaurant'),
+      Query.equal('subjectId', restaurantId),
+      Query.limit(1000),
+    ]);
+    const ratings = (res.documents || [])
+      .map((rv) => Number(rv.rating))
+      .filter((n) => Number.isFinite(n));
+    if (!ratings.length) return null;
+    const sum = ratings.reduce((acc, n) => acc + n, 0);
+    const avg = sum / ratings.length;
+    await db.updateDocument(DB_ID, COL.restaurants, restaurantId, { rating: avg });
+    return avg;
+  } catch (err) {
+    console.warn('RestaurantDetail: failed to update restaurant rating', err?.message || err);
+    return null;
+  }
+}
+
 // ============= Component =============
 export default function RestaurantDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
+
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState('User');
 
   // Accept either { restaurantId } or { restaurant }
   const passedRestaurant = route.params?.restaurant
@@ -250,6 +281,7 @@ export default function RestaurantDetailScreen() {
   const [restaurant, setRestaurant] = useState(passedRestaurant || null);
   const [items, setItems] = useState([]);
   const [remoteReviews, setRemoteReviews] = useState([]);
+  const [editingReview, setEditingReview] = useState(null);
 
   // UI state
   const [loading, setLoading] = useState(!passedRestaurant && !!restaurantId);
@@ -263,6 +295,16 @@ export default function RestaurantDetailScreen() {
     restaurantId ? getUserReviews(restaurantId) : [],
   );
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const reloadReviews = React.useCallback(async () => {
+    if (!restaurantId) return;
+    try {
+      const revDocs = await fetchReviewsForRestaurant(restaurantId);
+      setRemoteReviews(revDocs || []);
+      updateRestaurantAverageRating(restaurantId);
+    } catch (e) {
+      console.warn('RestaurantDetail: failed to refresh reviews', e?.message || e);
+    }
+  }, [restaurantId]);
 
   // ---- Map/navigation states ----
   const windowHeight = Dimensions.get('window').height;
@@ -294,6 +336,29 @@ export default function RestaurantDetailScreen() {
   const [previewSummary, setPreviewSummary] = useState(null);
   const [mapDimensions, setMapDimensions] = useState(null);
   const [isSheetCollapsed, setIsSheetCollapsed] = useState(false);
+
+  // Identify the current user for ownership checks
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const me = await account.get();
+        if (cancelled) return;
+        setCurrentUserId(me?.$id || null);
+        const candidateName = (me?.name || me?.email || '').trim();
+        if (candidateName) setCurrentUserName(candidateName);
+      } catch (_err) {
+        if (!cancelled) {
+          setCurrentUserId(null);
+          setCurrentUserName('User');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const minNavZoomRef = useRef(NAVIGATION_ZOOM);
   const pendingNavSnapRef = useRef(false);
   const [offRouteTarget, setOffRouteTarget] = useState(null);
@@ -349,6 +414,7 @@ export default function RestaurantDetailScreen() {
           id: rid,
           cuisines: Array.isArray(rDoc.cuisines) ? rDoc.cuisines : [],
           ambience: Array.isArray(rDoc.ambience) ? rDoc.ambience : [],
+          rating: typeof rDoc.rating === 'number' ? rDoc.rating : null,
         };
 
         const iNorm = (iDocs || []).map((it) => ({
@@ -1062,12 +1128,64 @@ export default function RestaurantDetailScreen() {
     });
   }, [items, restaurant, restaurantId]);
 
-  // Remote + local reviews together
+  // Remote + local reviews together (UI shows both), but averages use remote to avoid stale cached locals
   const allReviews = useMemo(() => {
     const basic = Array.isArray(remoteReviews) ? remoteReviews : [];
     const local = Array.isArray(userReviews) ? userReviews : [];
-    return [...local, ...basic];
+    const reviewKey = (rv = {}) =>
+      [
+        (rv.user || '').trim().toLowerCase(),
+        rv.rating ?? '',
+        (rv.comment || '').trim().toLowerCase(),
+        rv.taste ?? '',
+        rv.location ?? '',
+        rv.coziness ?? '',
+      ].join('|');
+    const remoteKeys = new Set(basic.map(reviewKey));
+    const localUnique = local.filter((rv) => !remoteKeys.has(reviewKey(rv)));
+    return [...localUnique, ...basic];
   }, [remoteReviews, userReviews]);
+
+  // Average rating is based on remote reviews only; fall back to stored rating when none exist
+  const averageRating = useMemo(() => {
+    const remoteRatings = (Array.isArray(remoteReviews) ? remoteReviews : [])
+      .map((rv) => (typeof rv.rating === 'number' ? rv.rating : Number(rv.rating)))
+      .filter((val) => Number.isFinite(val));
+    if (remoteRatings.length) {
+      const sum = remoteRatings.reduce((acc, val) => acc + val, 0);
+      return sum / remoteRatings.length;
+    }
+    const base = restaurant?.rating;
+    return typeof base === 'number' ? base : null;
+  }, [remoteReviews, restaurant?.rating]);
+
+  const averageRatingDisplay = averageRating != null ? averageRating.toFixed(1) : '-';
+
+  const handleDeleteReview = useCallback(
+    (review) => {
+      if (!review?.reviewId) return;
+      Alert.alert('Delete review?', 'This will remove your review.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await ensureSession();
+              await db.deleteDocument(DB_ID, COL.reviews, review.reviewId);
+              setRemoteReviews((prev) => prev.filter((rv) => rv.reviewId !== review.reviewId));
+              setUserReviews((prev) => prev.filter((rv) => rv.reviewId !== review.reviewId));
+              updateRestaurantAverageRating(restaurantId);
+            } catch (err) {
+              console.warn('RestaurantDetail: failed to delete review', err?.message || err);
+              Alert.alert('Unable to delete', err?.message || 'Please try again.');
+            }
+          },
+        },
+      ]);
+    },
+    [restaurantId],
+  );
 
   // ---- Loading / error states ----
   if (!passedRestaurant && !restaurantId) {
@@ -1370,10 +1488,13 @@ export default function RestaurantDetailScreen() {
               </TouchableOpacity>
 
               <ReviewButton
-                  restaurantId={rid}
-                  onReviewAdded={() => setUserReviews(getUserReviews(rid))}
-                  onOpen={() => setShowReviewModal(true)}
-                />
+                restaurantId={rid}
+                onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+                onOpen={() => {
+                  setEditingReview(null);
+                  setShowReviewModal(true);
+                }}
+              />
             </View>
           </View>
         ) : (
@@ -1411,7 +1532,7 @@ export default function RestaurantDetailScreen() {
               <Text style={styles.meta}>{restaurantLocation}</Text>
 
               <View style={styles.badgeRow}>
-                <Badge text={`${restaurant.rating ?? '-'} ${STAR}`} color={BRAND.accentSoft} />
+                <Badge text={`${averageRatingDisplay} ${STAR}`} color={BRAND.accentSoft} />
                 {typeof restaurant.averagePriceValue === 'number' ? (
                   <Badge text={`RM${restaurant.averagePriceValue}`} />
                 ) : null}
@@ -1432,10 +1553,13 @@ export default function RestaurantDetailScreen() {
                 </TouchableOpacity>
 
                 <ReviewButton
-                    restaurantId={rid}
-                    onReviewAdded={() => setUserReviews(getUserReviews(rid))}
-                    onOpen={() => setShowReviewModal(true)}
-                  />
+                  restaurantId={rid}
+                  onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+                  onOpen={() => {
+                    setEditingReview(null);
+                    setShowReviewModal(true);
+                  }}
+                />
                 <TouchableOpacity onPress={() => navigation.navigate('Review')}>
                 </TouchableOpacity>
               </View>
@@ -1537,6 +1661,22 @@ export default function RestaurantDetailScreen() {
                         )}
                       </View>
                     ) : null}
+                    {review.userId && review.userId === currentUserId ? (
+                      <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEditingReview(review);
+                            setShowReviewModal(true);
+                          }}
+                          style={{ marginRight: 12 }}
+                        >
+                          <Text style={{ color: BRAND.primary, fontWeight: '600' }}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDeleteReview(review)}>
+                          <Text style={{ color: '#B91C1C', fontWeight: '600' }}>Delete</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                   </View>
                 ))}
               </Section>
@@ -1548,8 +1688,25 @@ export default function RestaurantDetailScreen() {
       <ReviewModal
         restaurantId={rid}
         visible={showReviewModal}
-        onClose={() => setShowReviewModal(false)}
-        onReviewAdded={() => setUserReviews(getUserReviews(rid))}
+        onClose={() => {
+          setShowReviewModal(false);
+          setEditingReview(null);
+        }}
+        existingReview={editingReview}
+        currentUserId={currentUserId}
+        currentUserName={currentUserName}
+        onReviewAdded={(reviewData) => {
+          setEditingReview(null);
+          if (reviewData?.reviewId) {
+            setUserReviews((prev) => {
+              const remaining = prev.filter((rv) => rv.reviewId !== reviewData.reviewId);
+              return [reviewData, ...remaining];
+            });
+          } else {
+            setUserReviews(getUserReviews(rid));
+          }
+          reloadReviews();
+        }}
       />
     </View>
   );
@@ -1567,12 +1724,35 @@ function ReviewButton({ restaurantId, onReviewAdded, onOpen }) {
   );
 }
 
-function ReviewModal({ restaurantId, visible, onClose, onReviewAdded }) {
+function ReviewModal({
+  restaurantId,
+  visible,
+  onClose,
+  onReviewAdded,
+  existingReview,
+  currentUserId,
+  currentUserName,
+}) {
   const [taste, setTaste] = useState(0);
   const [location, setLocation] = useState(0);
   const [coziness, setCoziness] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Reset / prefill each time it opens so the user can submit or edit multiple reviews
+  useEffect(() => {
+    if (visible) {
+      setTaste(existingReview?.taste ?? 0);
+      setLocation(existingReview?.location ?? 0);
+      setCoziness(existingReview?.coziness ?? 0);
+      setComment(existingReview?.comment || '');
+      setSubmitted(false);
+      setSubmitting(false);
+      setError('');
+    }
+  }, [visible, existingReview]);
 
   if (!visible) return null;
 
@@ -1599,28 +1779,82 @@ function ReviewModal({ restaurantId, visible, onClose, onReviewAdded }) {
               multiline
             />
             <TouchableOpacity
-              style={[styles.submitBtn, { backgroundColor: BRAND.ink }]}
-              onPress={() => {
+              style={[styles.submitBtn, { backgroundColor: BRAND.ink, opacity: submitting ? 0.7 : 1 }]}
+              onPress={async () => {
+                if (!restaurantId) {
+                  setError('Missing restaurant');
+                  return;
+                }
+                if (submitting) return;
                 const overall = Math.round(((taste || 0) + (location || 0) + (coziness || 0)) / 3) || 0;
-                const newReview = {
-                  user: 'You',
+                const userId = currentUserId || null;
+                const userName = currentUserName || 'User';
+                const reviewId = existingReview?.reviewId || ID.unique();
+                const payload = {
+                  subjectType: 'restaurant',
+                  subjectId: restaurantId,
+                  userName,
+                  userId,
                   rating: overall,
-                  comment: comment.trim() || undefined,
                   taste,
-                  location,
+                  locationScore: location,
                   coziness,
+                  comment: comment.trim() || undefined,
                 };
-                addUserReview(restaurantId, newReview);
-                onReviewAdded?.();
-                setSubmitted(true);
-                setComment('');
-                setTaste(0);
-                setLocation(0);
-                setCoziness(0);
+                try {
+                  setSubmitting(true);
+                  setError('');
+                  await ensureSession();
+                  if (existingReview?.reviewId) {
+                    await db.updateDocument(DB_ID, COL.reviews, reviewId, payload);
+                  } else {
+                    const permissions = [Permission.read(Role.any())];
+                    if (userId) {
+                      permissions.push(
+                        Permission.update(Role.user(userId)),
+                        Permission.delete(Role.user(userId)),
+                      );
+                    }
+                    await db.createDocument(DB_ID, COL.reviews, reviewId, payload, permissions);
+                    addUserReview(restaurantId, {
+                      reviewId,
+                      userId,
+                      user: payload.userName,
+                      rating: overall,
+                      comment: payload.comment,
+                      taste,
+                      location,
+                      coziness,
+                    });
+                  }
+                  // Update the restaurant's stored average rating so other screens stay in sync
+                  updateRestaurantAverageRating(restaurantId);
+                  onReviewAdded?.({
+                    reviewId,
+                    userId,
+                    user: payload.userName,
+                    rating: overall,
+                    comment: payload.comment,
+                    taste,
+                    location,
+                    coziness,
+                  });
+                  setSubmitted(true);
+                  setComment('');
+                  setTaste(0);
+                  setLocation(0);
+                  setCoziness(0);
+                } catch (err) {
+                  console.warn('ReviewModal: failed to submit review', err?.message || err);
+                  setError(err?.message || 'Unable to submit review. Please try again.');
+                } finally {
+                  setSubmitting(false);
+                }
               }}
             >
-              <Text style={styles.submitText}>Submit</Text>
+              <Text style={styles.submitText}>{submitting ? 'Submitting...' : 'Submit'}</Text>
             </TouchableOpacity>
+            {error ? <Text style={[styles.modalHelper, { color: '#B91C1C', marginTop: 8 }]}>{error}</Text> : null}
             <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: BRAND.inkMuted }]}
               onPress={onClose}

@@ -43,13 +43,17 @@ const normalizeUpdateDoc = (doc) => {
     doc.updatedAt ||
     doc.$updatedAt ||
     new Date().toISOString();
-  const roleSource = doc.role || doc.authorRole || doc.roleType;
+  const authorType = doc.authorType || doc.author_type || null;
+  const restaurantId = normalizeRestaurantId(doc.restaurantId || doc.restaurant_id || null);
+  const roleSource = doc.role || doc.authorRole || doc.roleType || (authorType === 'restaurant' ? 'owner' : null);
   return {
     id,
     author,
     role: normalizeRole(roleSource),
     text,
     dateISO,
+    authorType: authorType || null,
+    restaurantId: restaurantId || null,
   };
 };
 
@@ -70,6 +74,12 @@ const deriveRoleFromProfile = (profile) => {
       value && (value.includes('owner') || value.includes('business') || value.includes('restaurant'))
     );
   return match ? 'owner' : 'user';
+};
+
+const normalizeRestaurantId = (value) => {
+  if (!value) return null;
+  const str = String(value).trim();
+  return str.replace(/^req-/i, '');
 };
 
 function Header({ onAddPress }) {
@@ -141,6 +151,16 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
   const [posting, setPosting] = React.useState(false);
   const [postError, setPostError] = React.useState('');
   const [restaurantDirectory, setRestaurantDirectory] = React.useState([]);
+  const [currentUser, setCurrentUser] = React.useState(null);
+  const [identityOptions, setIdentityOptions] = React.useState([]);
+  const [selectedIdentityId, setSelectedIdentityId] = React.useState('personal');
+  const [showIdentityDropdown, setShowIdentityDropdown] = React.useState(false);
+  const [loadingIdentities, setLoadingIdentities] = React.useState(false);
+  const selectedIdentity = React.useMemo(
+    () => identityOptions.find((opt) => opt.id === selectedIdentityId) || identityOptions[0] || null,
+    [identityOptions, selectedIdentityId]
+  );
+  const canSwitchIdentity = identityOptions.length > 1;
   React.useEffect(() => {
     let cancelled = false;
     getAllRestaurants()
@@ -156,7 +176,7 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
   }, []);
 
   // Modal composer state
-  const [author, setAuthor] = React.useState('');
+  const [authorInput, setAuthorInput] = React.useState('');
   const [text, setText] = React.useState('');
   const [selection, setSelection] = React.useState({ start: 0, end: 0 });
   const [mentionQuery, setMentionQuery] = React.useState(null); // { start, query, hadAt }
@@ -266,21 +286,77 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
     let active = true;
     (async () => {
       try {
+        setLoadingIdentities(true);
         await ensureSession();
         const profile = await account.get();
         if (!active) return;
+        setCurrentUser(profile);
         const fallback = profile?.email || 'You';
-        const inferred = profile?.name?.trim() || fallback;
-        setAuthor((prev) => (prev && prev.trim() ? prev : inferred));
+        const inferred = profile?.name?.trim() || profile?.prefs?.displayName || fallback;
+        setAuthorInput((prev) => (prev && prev.trim() ? prev : inferred));
+        const personalIdentity = {
+          id: 'personal',
+          label: inferred,
+          type: 'personal',
+          role: deriveRoleFromProfile(profile),
+        };
+        let restaurantIdentities = [];
+        try {
+          const res = await db.listDocuments(DB_ID, COL.restaurantRequests, [
+            Query.equal('ownerId', profile.$id),
+            Query.equal('status', 'approved'),
+            Query.limit(10),
+          ]);
+          restaurantIdentities = (res?.documents || []).map((doc) => {
+            const rid = normalizeRestaurantId(
+              doc.restaurantId ||
+                doc.restaurant_id ||
+                doc.linkedRestaurantId ||
+                doc.publishedRestaurantId ||
+                null
+            );
+            const label =
+              doc.businessName ||
+              doc.name ||
+              doc.restaurantName ||
+              doc.restaurant?.name ||
+              'Your Restaurant';
+            return {
+              id: `restaurant-${doc.$id}`,
+              label,
+              type: 'restaurant',
+              role: 'owner',
+              restaurantId: rid || null,
+            };
+          });
+        } catch (err) {
+          console.warn('UpdatesScreen: unable to load business profile', err?.message || err);
+        }
+        const options = [personalIdentity, ...restaurantIdentities];
+        setIdentityOptions(options);
+        setSelectedIdentityId((prev) =>
+          options.some((opt) => opt.id === prev) ? prev : options[0]?.id || 'personal'
+        );
       } catch {
         if (!active) return;
-        setAuthor((prev) => (prev && prev.trim() ? prev : 'You'));
+        setCurrentUser(null);
+        setIdentityOptions([]);
+        setSelectedIdentityId('personal');
+        setAuthorInput((prev) => (prev && prev.trim() ? prev : 'You'));
+      } finally {
+        if (active) setLoadingIdentities(false);
       }
     })();
     return () => {
       active = false;
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!modalVisible) {
+      setShowIdentityDropdown(false);
+    }
+  }, [modalVisible]);
 
   const submit = React.useCallback(async () => {
     const trimmed = text.trim();
@@ -292,20 +368,31 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
     setPostError('');
     try {
       await ensureSession();
-      const profile = await account.get();
+      const profile = currentUser || (await account.get());
+      if (!currentUser && profile) {
+        setCurrentUser(profile);
+      }
       if (!profile?.$id) {
         throw new Error('Unable to identify your session. Please try again.');
       }
+      const identity = selectedIdentity || identityOptions[0] || null;
+      const isRestaurant = identity?.type === 'restaurant';
       const resolvedAuthor =
-        (author || '').trim() ||
+        (isRestaurant ? identity?.label : authorInput)?.trim() ||
+        identity?.label ||
         profile?.name ||
         profile?.email ||
         'Community member';
+      const resolvedRole = isRestaurant
+        ? 'owner'
+        : identity?.role || deriveRoleFromProfile(profile);
       const payload = {
         text: trimmed,
         authorName: resolvedAuthor,
-        authorRole: deriveRoleFromProfile(profile),
+        authorRole: resolvedRole,
+        authorType: identity?.type || 'user',
         authorid: profile.$id,
+        restaurantId: isRestaurant ? identity?.restaurantId || null : null,
       };
       const doc = await db.createDocument(DB_ID, COL.updates, 'unique()', payload);
       const normalized = normalizeUpdateDoc(doc);
@@ -321,7 +408,7 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
     } finally {
       setPosting(false);
     }
-  }, [text, author]);
+  }, [text, authorInput, selectedIdentity, identityOptions, currentUser]);
 
   React.useEffect(() => {
     if (!modalVisible) {
@@ -438,13 +525,81 @@ export default function UpdatesScreen({ onScrollDirectionChange }) {
               </TouchableOpacity>
             </View>
 
-            <TextInput
-              placeholder="Your name (optional)"
-              value={author}
-              onChangeText={setAuthor}
-              style={styles.modalInputSmall}
-              placeholderTextColor="#999"
-            />
+            <Text style={styles.inputLabel}>Post as</Text>
+            <View style={{ marginBottom: 10 }}>
+              <TouchableOpacity
+                style={[styles.identitySelector, !canSwitchIdentity ? styles.identitySelectorDisabled : null]}
+                onPress={() => canSwitchIdentity && setShowIdentityDropdown((prev) => !prev)}
+                activeOpacity={0.9}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.identitySelectorTitle}>
+                    {selectedIdentity?.label || 'Personal profile'}
+                  </Text>
+                  <Text style={styles.identitySelectorSubtitle}>
+                    {loadingIdentities
+                      ? 'Detecting profiles...'
+                      : selectedIdentity?.type === 'restaurant'
+                      ? 'Business profile - verified'
+                      : 'Personal profile'}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={showIdentityDropdown ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color="#111827"
+                />
+              </TouchableOpacity>
+              {showIdentityDropdown ? (
+                <View style={styles.identityDropdown}>
+                  {identityOptions.map((opt) => {
+                    const isActive = opt.id === selectedIdentity?.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        onPress={() => {
+                          setSelectedIdentityId(opt.id);
+                          setShowIdentityDropdown(false);
+                          if (opt.type === 'personal' && !authorInput) {
+                            setAuthorInput(opt.label);
+                          }
+                        }}
+                        style={[styles.identityOption, isActive ? styles.identityOptionActive : null]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.identityOptionTitle}>{opt.label}</Text>
+                          <Text style={styles.identityOptionSubtitle}>
+                            {opt.type === 'restaurant' ? 'Business profile' : 'Personal profile'}
+                          </Text>
+                        </View>
+                        {opt.type === 'restaurant' ? (
+                          <Ionicons name="checkmark-circle" size={18} color={THEME_COLOR} />
+                        ) : isActive ? (
+                          <Ionicons name="person-circle-outline" size={18} color="#6B7280" />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+
+            {selectedIdentity?.type === 'restaurant' ? (
+              <View style={styles.identityLock}>
+                <Ionicons name="information-circle-outline" size={16} color={THEME_COLOR} />
+                <Text style={styles.identityLockText}>
+                  Posting as your restaurant. This will show the orange verification tick.
+                </Text>
+              </View>
+            ) : (
+              <TextInput
+                placeholder="Your name (optional)"
+                value={authorInput}
+                onChangeText={setAuthorInput}
+                style={styles.modalInputSmall}
+                placeholderTextColor="#999"
+              />
+            )}
 
             <View style={{ position: 'relative' }}>
               <TextInput
@@ -618,6 +773,56 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#333',
   },
+  inputLabel: { fontWeight: '700', color: '#111827', marginBottom: 8 },
+  identitySelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#EEE',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fafafa',
+    marginBottom: 8,
+  },
+  identitySelectorDisabled: { opacity: 0.8 },
+  identitySelectorTitle: { fontWeight: '800', color: '#111827', fontSize: 14 },
+  identitySelectorSubtitle: { color: '#6B7280', marginTop: 2, fontSize: 12 },
+  identityDropdown: {
+    borderWidth: 1,
+    borderColor: '#FFE8D2',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    shadowColor: THEME_COLOR,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    marginBottom: 8,
+  },
+  identityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f3f4f6',
+  },
+  identityOptionActive: { backgroundColor: '#FFF7EF' },
+  identityOptionTitle: { fontWeight: '700', color: '#111827', fontSize: 14 },
+  identityOptionSubtitle: { color: '#6B7280', marginTop: 2, fontSize: 12 },
+  identityLock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF7EF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFE8D2',
+    padding: 10,
+    marginBottom: 10,
+  },
+  identityLockText: { color: '#6B4A3F', flex: 1, fontSize: 13 },
 
   /* Suggestions */
   suggestBox: {

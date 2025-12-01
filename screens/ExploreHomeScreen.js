@@ -118,6 +118,17 @@ export default function ExploreHomeScreen({
   // --- % helpers (for the match badge) ---
   const clamp01 = (x) => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0));
   const pct = (x) => Math.round(clamp01(x) * 100);
+  const coerceNumber = (val) => {
+    if (Number.isFinite(val)) return val;
+    if (typeof val === 'string') {
+      const cleaned = val.match(/-?\d+(\.\d+)?/)?.[0];
+      if (cleaned != null) {
+        const parsed = Number(cleaned);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
+  };
 
   const likesFunctionAvailable = typeof getLikedItemIds === 'function';
   const savesFunctionAvailable = typeof getSavedRestaurantIds === 'function';
@@ -377,9 +388,17 @@ export default function ExploreHomeScreen({
     const prices = items.map((i) => parsePriceValue(i.price)).filter((n) => Number.isFinite(n));
     const averagePriceValue = prices.length ? Math.round(sum(prices) / prices.length) : 0;
     const averagePrice = toRM(averagePriceValue);
-    const rating =
-      rDoc.rating ??
-      (items.length ? Math.round((sum(items.map((i) => i.rating || 0)) / items.length) * 10) / 10 : 0);
+    const directRating = coerceNumber(rDoc.rating);
+    const itemRatingAvg =
+      items.length && items.some((i) => Number.isFinite(Number(i.rating)))
+        ? Math.round(
+            (sum(items.map((i) => (Number.isFinite(Number(i.rating)) ? Number(i.rating) : 0))) /
+              items.filter((i) => Number.isFinite(Number(i.rating))).length) *
+              10,
+          ) / 10
+        : null;
+    // Show rating from restaurant table; fall back to item average if no rating set
+    const rating = directRating ?? itemRatingAvg ?? null;
 
     return {
       id: rDoc.$id,
@@ -976,7 +995,10 @@ export default function ExploreHomeScreen({
                 ) : null}
 
                 <View style={styles.badgeRow}>
-                  <Badge text={`Rating ${r.rating ?? '-'}`} color="#FFD89E" />
+                  <Badge
+                    text={`Rating ${Number.isFinite(r.rating) ? r.rating.toFixed(1) : '-'}`}
+                    color="#FFD89E"
+                  />
                   <Badge text={r.averagePrice} />
                 </View>
               </TouchableOpacity>

@@ -1,0 +1,200 @@
+// screens/SearchScreen.js
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  ScrollView,
+  Image,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+
+// Appwrite
+import { db, DB_ID, COL, ensureSession } from '../appwrite';
+import { Query } from 'appwrite';
+
+const presetTags = ['spicy', 'sweet', 'salty', 'savory', 'hearty', 'refreshing', 'creamy'];
+
+const BRAND = {
+  primary: '#FF4D00',
+  bg: '#FFF5ED',
+  ink: '#3C1E12',
+  inkMuted: '#6B4A3F',
+  line: '#FFE8D2',
+};
+
+const parsePriceToNumber = (price) => {
+  if (!price) return null;
+  const numeric = parseFloat(String(price).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const toTitleCase = (value) => {
+  if (!value) return '';
+  const normalized = String(value)
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return normalized.replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const normalizeItemDoc = (it) => ({
+  id: it.$id,
+  name: it.name,
+  restaurantName: it.restaurantName || '',
+  type: it.type || 'other',
+  price: typeof it.priceRM === 'number' ? `RM ${Number(it.priceRM).toFixed(2)}` : null,
+  priceValue: typeof it.priceRM === 'number' ? it.priceRM : parsePriceToNumber(it.priceRM || it.price),
+  rating: typeof it.rating === 'number' ? it.rating : null,
+  cuisine: it.cuisine || '',
+  tags: Array.isArray(it.tags) ? it.tags : [],
+});
+
+const normalizeRestaurantDoc = (r) => ({
+  id: r.$id,
+  name: r.name,
+  cuisine: r.cuisine || (Array.isArray(r.cuisines) ? r.cuisines.join(', ') : ''),
+  location: r.location || '',
+  cuisines: Array.isArray(r.cuisines) ? r.cuisines : [],
+  rating: typeof r.rating === 'number' ? r.rating : null,
+  averagePriceValue: typeof r.averagePriceValue === 'number' ? r.averagePriceValue : null,
+  averagePrice: typeof r.averagePrice === 'string' ? r.averagePrice : null,
+});
+
+export default function SearchScreen({
+  navigation,
+  initialQuery = '',
+  onQueryChange,
+  onScrollDirectionChange,
+}) {
+  const [query, setQuery] = useState(initialQuery || '');
+  const [imageError, setImageError] = useState({});
+  const [items, setItems] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const scrollOffsetRef = useRef(0);
+  const lastDirectionRef = useRef('down');
+  const reportScrollDirection = useCallback(
+    (direction) => {
+      if (typeof onScrollDirectionChange !== 'function') {
+        return;
+      }
+      if (lastDirectionRef.current === direction) {
+        return;
+      }
+      lastDirectionRef.current = direction;
+      onScrollDirectionChange(direction);
+    },
+    [onScrollDirectionChange]
+  );
+
+  useEffect(() => {
+    reportScrollDirection('down');
+  }, [reportScrollDirection]);
+
+  const handleScroll = useCallback(
+    (event) => {
+      const y = event?.nativeEvent?.contentOffset?.y ?? 0;
+      const delta = y - scrollOffsetRef.current;
+      scrollOffsetRef.current = y;
+      if (y <= 0) {
+        reportScrollDirection('down');
+        return;
+      }
+      if (Math.abs(delta) < 8) {
+        return;
+      }
+      reportScrollDirection(delta > 0 ? 'up' : 'down');
+    },
+    [reportScrollDirection]
+  );
+
+  // Keep query in sync if parent passes a new initialQuery
+  useEffect(() => {
+    if (typeof initialQuery === 'string') {
+      setQuery((prev) => (prev === initialQuery ? prev : initialQuery));
+    }
+  }, [initialQuery]);
+
+  // Load data from Appwrite (refresh on focus for predictable updates)
+  const loadData = useCallback(async () => {
+    let cancelled = false;
+    try {
+      setLoading(true);
+      await ensureSession();
+      const [itemsRes, restRes] = await Promise.all([
+        db.listDocuments(DB_ID, COL.items, [Query.limit(200)]),
+        db.listDocuments(DB_ID, COL.restaurants, [Query.limit(200)]),
+      ]);
+      if (cancelled) return;
+      setItems((itemsRes.documents || []).map(normalizeItemDoc));
+      setRestaurants((restRes.documents || []).map(normalizeRestaurantDoc));
+    } catch (e) {
+      console.warn('SearchScreen: failed to load', e?.message || e);
+      if (!cancelled) {
+        setItems([]);
+        setRestaurants([]);
+      }
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!initialLoadDone) {
+      loadData();
+      setInitialLoadDone(true);
+    }
+  }, [initialLoadDone, loadData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+      return () => {};
+    }, [loadData])
+  );
+
+  const handleChangeQuery = useCallback(
+    (text) => {
+      setQuery(text);
+      onQueryChange?.(text);
+    },
+    [onQueryChange]
+  );
+
+  // Build Discover tags from items' tags, but show only those in presetTags
+  const discoverTags = useMemo(() => {
+    const allTags = new Set(items.flatMap((i) => i.tags || []).map((t) => String(t).toLowerCase()));
+    return presetTags.filter((t) => allTags.has(t));
+  }, [items]);
+
+  // Autocomplete suggestions (items + restaurants)
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const itemMatches = items
+      .filter(
+        (i) =>
+          i.name.toLowerCase().includes(q) ||
+          String(i.restaurantName).toLowerCase().includes(q) ||
+          String(i.cuisine).toLowerCase().includes(q)
+      )
+      .slice(0, 5)
+      .map((i) => ({
+        id: `item-${i.id}`,
+        label: `${i.name} • ${i.restaurantName || '—'}`,
+        kind: 'item',
+        payload: i,
+      }));
+
