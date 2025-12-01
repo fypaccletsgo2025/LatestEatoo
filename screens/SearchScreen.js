@@ -75,7 +75,6 @@ export default function SearchScreen({
   const [items, setItems] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const scrollOffsetRef = useRef(0);
   const lastDirectionRef = useRef('down');
   const reportScrollDirection = useCallback(
@@ -121,8 +120,8 @@ export default function SearchScreen({
   }, [initialQuery]);
 
   // Load data from Appwrite (refresh on focus for predictable updates)
-  const loadData = useCallback(async () => {
-    let cancelled = false;
+  const loadData = useCallback(async (abortRef) => {
+    const isCancelled = () => Boolean(abortRef?.current);
     try {
       setLoading(true);
       await ensureSession();
@@ -130,65 +129,29 @@ export default function SearchScreen({
         db.listDocuments(DB_ID, COL.items, [Query.limit(200)]),
         db.listDocuments(DB_ID, COL.restaurants, [Query.limit(200)]),
       ]);
-      if (cancelled) return;
+      if (isCancelled()) return;
       setItems((itemsRes.documents || []).map(normalizeItemDoc));
       setRestaurants((restRes.documents || []).map(normalizeRestaurantDoc));
     } catch (e) {
       console.warn('SearchScreen: failed to load', e?.message || e);
-      if (!cancelled) {
+      if (!isCancelled()) {
         setItems([]);
         setRestaurants([]);
       }
     } finally {
-      if (!cancelled) setLoading(false);
+      if (!isCancelled()) setLoading(false);
     }
-    return () => {
-      cancelled = true;
-    };
   }, []);
-
-  useEffect(() => {
-    if (!initialLoadDone) {
-      loadData();
-      setInitialLoadDone(true);
-    }
-  }, [initialLoadDone, loadData]);
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
-      return () => {};
+      const abortRef = { current: false };
+      loadData(abortRef);
+      return () => {
+        abortRef.current = true;
+      };
     }, [loadData])
   );
-
-  // Legacy mount-only effect kept for compatibility
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        await ensureSession();
-        const [itemsRes, restRes] = await Promise.all([
-          db.listDocuments(DB_ID, COL.items, [Query.limit(200)]),
-          db.listDocuments(DB_ID, COL.restaurants, [Query.limit(200)]),
-        ]);
-        if (cancelled) return;
-        setItems((itemsRes.documents || []).map(normalizeItemDoc));
-        setRestaurants((restRes.documents || []).map(normalizeRestaurantDoc));
-      } catch (e) {
-        console.warn('SearchScreen: failed to load', e?.message || e);
-        if (!cancelled) {
-          setItems([]);
-          setRestaurants([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleChangeQuery = useCallback(
     (text) => {

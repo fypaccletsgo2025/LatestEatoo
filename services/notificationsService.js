@@ -4,6 +4,22 @@ import { ID, Query } from 'appwrite';
 import { formatTimeAgo } from '../utils/timeUtils';
 
 const COLLECTION_ID = 'notifications';
+const REALTIME_DISCONNECT_MSG = 'Realtime got disconnected';
+
+// Filter noisy reconnect logs from the Appwrite SDK to keep presentation clean.
+let consoleWarnPatched = false;
+function suppressRealtimeDisconnectWarnings() {
+  if (consoleWarnPatched) return;
+  consoleWarnPatched = true;
+  const origWarn = console.warn;
+  console.warn = (...args) => {
+    const text = args.map((a) => (typeof a === 'string' ? a : '')).join(' ');
+    if (text.includes(REALTIME_DISCONNECT_MSG)) {
+      return;
+    }
+    origWarn(...args);
+  };
+}
 
 function generateTitle(doc) {
   const status = String(doc?.payload?.status || '').toLowerCase();
@@ -146,6 +162,7 @@ export async function markNotificationRead(documentId) {
 }
 
 export function subscribeToUserNotifications(userId, handler) {
+  suppressRealtimeDisconnectWarnings();
   if (!handler) return () => {};
   const unsubscribe = client.subscribe(
     `databases.${DB_ID}.collections.${COLLECTION_ID}.documents`,

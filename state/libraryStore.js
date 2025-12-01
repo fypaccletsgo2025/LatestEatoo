@@ -45,31 +45,54 @@ async function getCurrentUserId() {
   return currentUserId;
 }
 
+function setsEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const v of a) {
+    if (!b.has(v)) return false;
+  }
+  return true;
+}
+
 function applySnapshot({ saves = [], likes = [] }) {
-  savedRestaurantIds.clear();
-  likedItemIds.clear();
-  savedDocIdsByRestaurant.clear();
-  likedDocIdsByItem.clear();
+  const nextSavedSet = new Set();
+  const nextLikedSet = new Set();
+  const nextSavedDocIds = new Map();
+  const nextLikedDocIds = new Map();
 
   saves.forEach((doc) => {
     const docId = doc?.$id || doc?.id;
     const restaurantId =
       toKey(doc?.restaurant_id ?? doc?.restaurantId ?? doc?.targetId ?? null) || null;
     if (!docId || !restaurantId) return;
-    savedRestaurantIds.add(restaurantId);
-    savedDocIdsByRestaurant.set(restaurantId, docId);
+    nextSavedSet.add(restaurantId);
+    nextSavedDocIds.set(restaurantId, docId);
   });
 
   likes.forEach((doc) => {
     const docId = doc?.$id || doc?.id;
     const itemId = toKey(doc?.item_id ?? doc?.itemId ?? doc?.targetId ?? null) || null;
     if (!docId || !itemId) return;
-    likedItemIds.add(itemId);
-    likedDocIdsByItem.set(itemId, docId);
+    nextLikedSet.add(itemId);
+    nextLikedDocIds.set(itemId, docId);
   });
 
+  const savedChanged = !setsEqual(savedRestaurantIds, nextSavedSet);
+  const likedChanged = !setsEqual(likedItemIds, nextLikedSet);
+
+  savedRestaurantIds.clear();
+  nextSavedSet.forEach((v) => savedRestaurantIds.add(v));
+  likedItemIds.clear();
+  nextLikedSet.forEach((v) => likedItemIds.add(v));
+
+  savedDocIdsByRestaurant.clear();
+  nextSavedDocIds.forEach((v, k) => savedDocIdsByRestaurant.set(k, v));
+  likedDocIdsByItem.clear();
+  nextLikedDocIds.forEach((v, k) => likedDocIdsByItem.set(k, v));
+
   hydratedOnce = true;
-  notify();
+  if (savedChanged || likedChanged) {
+    notify();
+  }
 }
 
 export async function loadLibraryState({ force = false } = {}) {
