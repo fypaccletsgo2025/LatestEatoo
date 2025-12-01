@@ -1187,6 +1187,28 @@ export default function RestaurantDetailScreen() {
     [restaurantId],
   );
 
+  const handleReviewLongPress = useCallback(
+    (review) => {
+      if (!review?.userId || review.userId !== currentUserId) return;
+      Alert.alert('Your review', 'Edit or delete this review?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Edit',
+          onPress: () => {
+            setEditingReview(review);
+            setShowReviewModal(true);
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeleteReview(review),
+        },
+      ]);
+    },
+    [currentUserId, handleDeleteReview],
+  );
+
   // ---- Loading / error states ----
   if (!passedRestaurant && !restaurantId) {
     return (
@@ -1640,7 +1662,14 @@ export default function RestaurantDetailScreen() {
             {allReviews && allReviews.length ? (
               <Section title="Reviews">
                 {allReviews.map((review, idx) => (
-                  <View key={`rev-${idx}`} style={styles.reviewCard}>
+                  <TouchableOpacity
+                    key={`rev-${idx}`}
+                    style={styles.reviewCard}
+                    activeOpacity={0.9}
+                    delayLongPress={350}
+                    onLongPress={() => handleReviewLongPress(review)}
+                    disabled={!review.userId || review.userId !== currentUserId}
+                  >
                     <Text style={styles.reviewAuthor}>{review.user || 'User'}</Text>
                     {review.rating != null ? (
                       <Text style={styles.reviewMeta}>{review.rating} {STAR}</Text>
@@ -1661,23 +1690,7 @@ export default function RestaurantDetailScreen() {
                         )}
                       </View>
                     ) : null}
-                    {review.userId && review.userId === currentUserId ? (
-                      <View style={{ flexDirection: 'row', marginTop: 8 }}>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setEditingReview(review);
-                            setShowReviewModal(true);
-                          }}
-                          style={{ marginRight: 12 }}
-                        >
-                          <Text style={{ color: BRAND.primary, fontWeight: '600' }}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleDeleteReview(review)}>
-                          <Text style={{ color: '#B91C1C', fontWeight: '600' }}>Delete</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : null}
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </Section>
             ) : null}
